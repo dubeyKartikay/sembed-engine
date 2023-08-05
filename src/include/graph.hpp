@@ -1,3 +1,5 @@
+#ifndef GRAPH
+#define GRAPH
 class Graph
 {
 private:
@@ -7,6 +9,7 @@ public:
     ~Graph();
 
 };
+#endif
 
 // Graph::Graph(/* args */)
 // {
