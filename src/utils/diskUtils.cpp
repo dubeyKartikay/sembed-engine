@@ -4,7 +4,7 @@
 #include <vector>
 #include <algorithm>
 namespace fs = std::filesystem;
-const int STARTING_HEADER_OFFSET = 8;
+const int STARTING_HEADER_OFFSET = 2*sizeof(long long int);
 bool isValidPath(const std::string& path) {
         return fs::exists(path);
 }
@@ -42,8 +42,8 @@ std::vector<std::vector<float>*>* FileDataSet::getNVectorsFromIndex(const int &i
     m_file.read(reinterpret_cast<char*>(buffer),n*dimentions*sizeof(float));
     for (size_t i = 0; i < n; i++)
     {
-        std::vector<float> * vector_floats = new std::vector<float>();
-        std::copy_n(buffer + i*dimentions,dimentions,vector_floats->begin());
+        std::vector<float> * vector_floats = new std::vector<float>(dimentions,0);
+        std::copy_n(buffer + i*dimentions,dimentions,vector_floats->data());
         vec->push_back(vector_floats);
     }
     free(buffer);

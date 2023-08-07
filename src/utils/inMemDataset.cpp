@@ -1,12 +1,13 @@
 #include "dataset.hpp"
-
+#include <iostream>
 InMemoryDataSet::InMemoryDataSet(fs::path path){
     FileDataSet * f = new FileDataSet(path);
     this->n =  f->getN();
     this->dimentions = f->getDimentions();
     this->getN();
+    std::cout << this->n << " " << this->dimentions << "\n" ; 
     this->m_data = f->getNVectorsFromIndex(0,this->getN());
-    delete f;
+ /*    delete f; */
 }
 
 std::vector<float>* InMemoryDataSet::getVecByIndex(const int & index){
