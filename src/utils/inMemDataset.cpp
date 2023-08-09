@@ -22,21 +22,25 @@ InMemoryDataSet::InMemoryDataSet(fs::path path){
 
 }
 std::vector<HDVector*> * InMemoryDataSet::readDataFromFile(){
-  std::vector<HDVector * > * vec = new std::vector<HDVector *>(this->getN(),new HDVector(this->getDimentions()));
+  std::vector<HDVector * > * vec = new std::vector<HDVector *>();
   float * buf = (float *)malloc(this->getDimentions() * this->getN() * sizeof(float));
   if(buf == NULL){
     throw std::runtime_error("Cannot allocated the required memoory to load the dataset into memory");
   }
   m_file.read(reinterpret_cast<char *>(buf), this->getDimentions() * this->getN() * sizeof(float));
-  
+  std::cout << "BUF 0" << buf[0] << std::endl; 
   for(int i = 0;i < this->getN(); i++){
-    std::copy_n(buf + i*this->getDimentions(),this->getDimentions(),vec->at(i)->getDataPointer());
+    HDVector * hdv = new HDVector(dimentions);
+    std::copy_n(buf + i*this->getDimentions(),this->getDimentions(),hdv->getDataPointer());
+    vec->push_back(hdv);
   }
+  free(buf);
   return vec;
   
 }
 const HDVector& InMemoryDataSet::getHDVecByIndex(const int & index) const {
   HDVector * vec = this->m_data->at(index);
+  std::cout << "req ind : "<< index << "del ind : " <<(*vec)[0];
   auto &ret = *vec;
   return ret;
 }
