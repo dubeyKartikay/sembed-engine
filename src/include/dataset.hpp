@@ -15,7 +15,7 @@ class DataSet{
     public:
         DataSet() = default;
         DataSet(const DataSet&) = delete;
-        virtual const HDVector &  getHDVecByIndex(const int  &index) const = 0;
+        virtual std::shared_ptr<HDVector> getHDVecByIndex(const int  &index);
         virtual std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> getNHDVectorsFromIndex(const int  &index,const int & n);
         const int getN() const {
             return  this->n;
@@ -29,7 +29,7 @@ class DataSet{
 class FileDataSet :public DataSet{
     public:
         FileDataSet(fs::path path );
-        const HDVector & getHDVecByIndex(const int  &index);
+        std::shared_ptr<HDVector> getHDVecByIndex(const int  &index);
         std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>getNHDVectorsFromIndex(const int  &index,const int & n);
         using DataSet::getN;
         using DataSet::getDimentions;
@@ -38,10 +38,10 @@ class FileDataSet :public DataSet{
 class InMemoryDataSet :public DataSet{
     private:
         std::vector<std::shared_ptr<HDVector>>   m_data;
-        void readDataFromFile(std::vector<std::shared_ptr<HDVector>> & m_data);
+        void readDataFromFile();
     public:
         InMemoryDataSet(fs::path path );
-        const HDVector & getHDVecByIndex(const int  &index) const;
+        std::shared_ptr<HDVector> getHDVecByIndex(const int  &index);
         std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> getNHDVectorsFromIndex(const int  &index,const int & n);
         using DataSet::getN;
         using DataSet::getDimentions;
