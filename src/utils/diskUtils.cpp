@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include "dataset.hpp"
 #include "HDVector.hpp"
@@ -33,7 +34,7 @@ const HDVector & FileDataSet::getHDVecByIndex(const int  &index){
 
 }
 
-const std::vector<HDVector*> & FileDataSet::getNHDVectorsFromIndex(const int &index,const int & n){
+std::unique_ptr<std::vector<const HDVector &>> FileDataSet::getNHDVectorsFromIndex(const int &index,const int & n){
     std::vector<HDVector*> * vec = new std::vector<HDVector *>();
     vec->reserve(n);
     

@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include "HDVector.hpp"
+#include <memory>
 #ifndef DATASET
 #define DATASET
 
@@ -10,11 +11,12 @@ class DataSet{
     protected:
         long long int n;
         long long int dimentions;
+        std::fstream m_file;
     public:
         DataSet() = default;
         DataSet(const DataSet&) = delete;
         virtual const HDVector &  getHDVecByIndex(const int  &index) const = 0;
-        virtual const std::vector<HDVector*> & getNHDVectorsFromIndex(const int  &index,const int & n) const = 0;
+        virtual std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> getNHDVectorsFromIndex(const int  &index,const int & n);
         const int getN() const {
             return  this->n;
         }
@@ -25,25 +27,22 @@ class DataSet{
 };
 
 class FileDataSet :public DataSet{
-    private:
-        std::fstream m_file;
     public:
         FileDataSet(fs::path path );
         const HDVector & getHDVecByIndex(const int  &index);
-        const std::vector<HDVector*> &getNHDVectorsFromIndex(const int  &index,const int & n);
+        std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>getNHDVectorsFromIndex(const int  &index,const int & n);
         using DataSet::getN;
         using DataSet::getDimentions;
 };
 
 class InMemoryDataSet :public DataSet{
     private:
-        std::vector<HDVector*>* m_data;
-        std::fstream m_file;
-        std::vector<HDVector *> * readDataFromFile();
+        std::vector<std::shared_ptr<HDVector>>   m_data;
+        void readDataFromFile(std::vector<std::shared_ptr<HDVector>> & m_data);
     public:
         InMemoryDataSet(fs::path path );
         const HDVector & getHDVecByIndex(const int  &index) const;
-        const std::vector<HDVector*> & getNHDVectorsFromIndex(const int  &index,const int & n) const ;
+        std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> getNHDVectorsFromIndex(const int  &index,const int & n);
         using DataSet::getN;
         using DataSet::getDimentions;
 };
