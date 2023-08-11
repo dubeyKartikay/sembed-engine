@@ -25,7 +25,13 @@ target_link_libraries(load_from_binary PUBLIC batch_stocastic_kmeans)
 target_link_libraries(sembed PUBLIC load_from_binary)
 
 enable_testing()
-add_executable(Test ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_diskUtils.cpp) 
+set(TEST_SRC_FILES 
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_diskUtils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_inMemory.cpp
+
+)
+
+add_executable(Test ${TEST_SRC_FILES}) 
 target_link_libraries(Test PUBLIC GTest::gtest_main) 
 target_link_libraries(Test PUBLIC utils)
 include(GoogleTest)

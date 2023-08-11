@@ -3,16 +3,16 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
-TEST(LoadingBinary, LoadingGLOVEBinaryOnDisk) {
+TEST(LoadingBinary, LoadingGLOVEBinaryInMemory) {
   std::filesystem::path path("../build/gvec.bin");
-  FileDataSet dataset(path);
+  InMemoryDataSet dataset(path);
   ASSERT_EQ(dataset.getN(), 400000);
   ASSERT_EQ(dataset.getDimentions(), 51);
 }
 
-TEST(LoadingBinary, CheckingFirstElementInTheLoadedGLOVEOnDisk) {
+TEST(LoadingBinary, CheckingFirstElementInTheLoadedGLOVEMemory) {
   std::filesystem::path path("../build/gvec.bin");
-  FileDataSet dataset(path);
+  InMemoryDataSet dataset(path);
   std::vector<float> *data = new std::vector<float>(
       {0,         0.418,    0.24968,   -0.41242,    0.1217,    0.34527,
        -0.044457, -0.49688, -0.17862,  -0.00066023, -0.6566,   0.27843,
@@ -30,9 +30,9 @@ TEST(LoadingBinary, CheckingFirstElementInTheLoadedGLOVEOnDisk) {
   data->clear();
   delete data;
 }
-TEST(LoadingBinary, CheckingLastElementInTheLoadedGLOVEOnDisk) {
+TEST(LoadingBinary, CheckingLastElementInTheLoadedGLOVEMemory) {
   std::filesystem::path path("../build/gvec.bin");
-  FileDataSet dataset(path);
+  InMemoryDataSet dataset(path);
   std::vector<float> *data2 =
       new std::vector<float>({(float)(dataset.getN() - 1),
                               0.072617,

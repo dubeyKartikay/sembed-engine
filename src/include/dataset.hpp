@@ -15,8 +15,8 @@ class DataSet{
     public:
         DataSet() = default;
         DataSet(const DataSet&) = delete;
-        virtual std::shared_ptr<HDVector> getHDVecByIndex(const int  &index);
-        virtual std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> getNHDVectorsFromIndex(const int  &index,const int & n);
+        virtual std::shared_ptr<HDVector> getHDVecByIndex(const int  &index) = 0;
+        virtual std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> getNHDVectorsFromIndex(const int  &index,const int & n) = 0;
         const int getN() const {
             return  this->n;
         }
