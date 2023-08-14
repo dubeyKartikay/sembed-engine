@@ -1,19 +1,21 @@
-#include <iostream>
-#include <vector>
-#include <random>
 #include <algorithm>
-std::vector<int> generateRandomNumbers(const int& k,const int &n){
-    // Create a vector to store numbers from 0 to n-1
-    std::vector<int> numbers(n);
-    for (int i = 0; i < n; ++i) {
-        numbers[i] = i;
-    }
+#include <iostream>
+#include <random>
+#include <vector>
+std::vector<int> generateRandomNumbers(const int &k, const int &n,
+                                       int blackList = -1) {
+  // Create a vector to store numbers from 0 to n-1
+  std::vector<int> numbers;
+  numbers.reserve(n);
+  for (int i = 0; i < n -1; i++) {
+    if(i == blackList){continue;}
+    numbers.push_back(i);
+  }
 
-    // Shuffle the vector using Fisher-Yates algorithm
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::shuffle(numbers.begin(), numbers.end(), gen);
+  // Shuffle the vector using Fisher-Yates algorithm
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::shuffle(numbers.begin(), numbers.end(), gen);
 
-    
-    return std::vector<int>(numbers.begin(), numbers.begin() + k);
+  return std::vector<int>(numbers.begin(), numbers.begin() + k);
 }
