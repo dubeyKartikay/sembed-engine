@@ -13,9 +13,15 @@ std::vector<int> generateRandomNumbers(const int &k, const int &n,
   }
 
   // Shuffle the vector using Fisher-Yates algorithm
-  std::random_device rd;
-  std::mt19937 gen(rd());
+  std::mt19937 gen;
+  gen.seed(1);
   std::shuffle(numbers.begin(), numbers.end(), gen);
 
   return std::vector<int>(numbers.begin(), numbers.begin() + k);
+}
+
+int getRandomNumber(int start, int end){
+  std::mt19937 gen;
+  gen.seed(2);
+  return start + gen() %(end - start + 1);
 }
