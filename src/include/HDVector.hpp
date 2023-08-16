@@ -2,6 +2,7 @@
 #include <memory>
 #ifndef HDVEC
 #define HDVEC
+
 class HDVector{
   private:
     std::vector<float> m_data;

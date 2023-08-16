@@ -13,8 +13,8 @@ private:
   float m_distanceThreshold;
   int m_searchListSize;
   void prune(int node, std::vector<int> &candidateSet);
-  SearchResults greedySearch(int queryNode, int k);
-
+  SearchResults greedySearch(HDVector queryNode, int k);
+  void insertIntoANN(std::vector<int> &NOut, std::vector<int> & ANNset, HDVector & node );
 public:
   Vamana(std::unique_ptr<DataSet> dataSet, int degreeThreshold,
          float distanceThreshold = 1.2f);
@@ -29,7 +29,7 @@ public:
   void setSeachListSize(int L){
     m_searchListSize = L;
   }
-  std::unique_ptr<std::vector<int>> search(int queryNode, int k);
+  std::unique_ptr<std::vector<int>> search(HDVector queryNode, int k);
   void save();
   ~Vamana();
 };
