@@ -14,6 +14,8 @@ set(UTILS_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/inMemDataset.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/diskUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/HDVector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/Vamana.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/Graph.cpp
 
     )
 
@@ -28,7 +30,7 @@ enable_testing()
 set(TEST_SRC_FILES 
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_diskUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_inMemory.cpp
-
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_hdvec.cpp
 )
 
 add_executable(Test ${TEST_SRC_FILES}) 

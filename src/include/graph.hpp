@@ -15,7 +15,7 @@ public:
     
     Graph(int numberOfNodes,int R);
     Graph(std::filesystem::path path);
-    ~Graph();
+/*     ~Graph(); */
     std::vector<int> & getOutNeighbours(const int& node);
     // void save();
     int getMediod(){

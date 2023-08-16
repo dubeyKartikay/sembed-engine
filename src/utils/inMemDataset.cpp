@@ -28,7 +28,6 @@ void InMemoryDataSet::readDataFromFile(){
     throw std::runtime_error("Cannot allocated the required memoory to load the dataset into memory");
   }
   m_file.read(reinterpret_cast<char *>(buf), this->getDimentions() * this->getN() * sizeof(float));
-  std::cout << "BUF 0" << buf[0] << std::endl; 
   for(int i = 0;i < this->getN(); i++){
     std::shared_ptr<HDVector> hdv = std::make_shared<HDVector>(dimentions);
     std::copy_n(buf + i*this->getDimentions(),this->getDimentions(),hdv->getDataPointer());
@@ -39,7 +38,6 @@ void InMemoryDataSet::readDataFromFile(){
 }
 std::shared_ptr<HDVector> InMemoryDataSet::getHDVecByIndex(const int & index){
   std::shared_ptr<HDVector> vec = this->m_data.at(index);
-  std::cout << "req ind : "<< index << "del ind : " <<(*vec)[0];
   return vec;
 }
 
