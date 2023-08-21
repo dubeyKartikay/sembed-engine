@@ -31,6 +31,7 @@ set(TEST_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_diskUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_inMemory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_hdvec.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_greedySearch.cpp
 )
 
 add_executable(Test ${TEST_SRC_FILES}) 

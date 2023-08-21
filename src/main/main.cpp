@@ -7,19 +7,18 @@
 #include "vamana.hpp"
 int main(int argc, char ** argv){
     // std::cout << argc << argv[0] << '\n';
-  std::filesystem::path path("../build/testvec.bin");
+  std::filesystem::path path("../build/gvec.bin");
   std::unique_ptr<InMemoryDataSet> dataset = std::make_unique<InMemoryDataSet>(path);
-  Vamana v(std::move(dataset),500);
+  Vamana v(std::move(dataset),70);
   HDVector hdve = *v.m_dataSet->getHDVecByIndex(2);
   Graph g = v.m_graph;
-  for (int i = 0; i < v.m_dataSet->getN(); i++) {
-    for (int ele : g.getOutNeighbours(i)) {
-      std::cout << ele << " "; 
-    }
-    std::cout << std::endl;
+  for (int neight : g.getOutNeighbours(2)) {
+    std::cout << neight << " ";
   }
-  v.setSeachListSize(100);
-  SearchResults s = v.greedySearch( hdve, 10); 
+  std::cout << std::endl;
+  std::cout << "mediod" << v.m_graph.getMediod() << std::endl;
+  v.setSeachListSize(125);
+  SearchResults s = v.greedySearch( hdve, 1); 
   for (int ANN : s.approximateNN) {
     std::cout << ANN << " " << HDVector::distance(hdve, *v.m_dataSet->getHDVecByIndex(ANN)) <<  std::endl;
   }

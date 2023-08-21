@@ -62,7 +62,7 @@ SearchResults Vamana::greedySearch(HDVector node, int k) {
   searchResult.approximateNN.push_back(m_graph.getMediod());
   std::unordered_set<int> visited;
   int maxIter = 0;
-  while (maxIter < m_searchListSize) {
+  while (maxIter < 10000) {
     int i = 0;
     while (i < m_searchListSize && i < searchResult.approximateNN.size() &&
            visited.count(searchResult.approximateNN[i]) != 0) {
@@ -82,6 +82,8 @@ SearchResults Vamana::greedySearch(HDVector node, int k) {
     }
     maxIter++;
   }
-
+  while (searchResult.approximateNN.size() > k) {
+    searchResult.approximateNN.pop_back();
+  }
   return searchResult;
 }
