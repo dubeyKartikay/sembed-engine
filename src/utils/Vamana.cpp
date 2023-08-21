@@ -27,8 +27,8 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
   m_distanceThreshold = distanceThreshold;
 }
 
-void Vamana::insertIntoANN(std::vector<int> &NOut, std::vector<int> &ANNset,
-                           HDVector &node) {
+void Vamana::insertIntoSet(std::vector<int> &from, std::vector<int> &to,
+                           HDVector &comparison_vec) {
   struct customLess {
     HDVector *qNode;
     Vamana *vamana;
@@ -45,18 +45,19 @@ void Vamana::insertIntoANN(std::vector<int> &NOut, std::vector<int> &ANNset,
       }
     }
   };
-  for (int outNode : NOut) {
-    auto pos = std::lower_bound(ANNset.begin(), ANNset.end(), outNode,
-                                customLess(&node, this));
-    if (pos == ANNset.end()) {
-      ANNset.push_back(outNode);
+  for (int outNode : from) {
+    auto pos = std::lower_bound(to.begin(), to.end(), outNode,
+                                customLess(&comparison_vec, this));
+    if (pos == to.end()) {
+      to.push_back(outNode);
     } else {
       if (*pos != outNode) {
-        ANNset.insert(pos, outNode);
+        to.insert(pos, outNode);
       }
     }
   }
 }
+
 SearchResults Vamana::greedySearch(HDVector node, int k) {
   SearchResults searchResult;
   searchResult.approximateNN.push_back(m_graph.getMediod());
@@ -75,7 +76,7 @@ SearchResults Vamana::greedySearch(HDVector node, int k) {
     int node_p_star = searchResult.approximateNN[i];
     visited.insert(node_p_star);
     searchResult.visited.push_back(node_p_star);
-    insertIntoANN(m_graph.getOutNeighbours(node_p_star),
+    insertIntoSet(m_graph.getOutNeighbours(node_p_star),
                   searchResult.approximateNN, node);
     while (searchResult.approximateNN.size() > m_searchListSize) {
       searchResult.approximateNN.pop_back();
@@ -86,4 +87,44 @@ SearchResults Vamana::greedySearch(HDVector node, int k) {
     searchResult.approximateNN.pop_back();
   }
   return searchResult;
+}
+
+bool Vamana::isToBePruned(int p_dash, int p_star, int p) {
+  std::shared_ptr<HDVector> p_dash_vec = m_dataSet->getHDVecByIndex(p_dash);
+  std::shared_ptr<HDVector> p_star_vec = m_dataSet->getHDVecByIndex(p_star);
+  std::shared_ptr<HDVector> p_vec = m_dataSet->getHDVecByIndex(p);
+  float distanceFromP_starToP_dash =
+      HDVector::distance(*p_star_vec, *p_dash_vec);
+  float distanceFromPToP_dash = HDVector::distance(*p_vec, *p_dash_vec);
+  return m_distanceThreshold * distanceFromP_starToP_dash <=
+         distanceFromPToP_dash;
+}
+
+void Vamana::prune(int node, std::vector<int> &candidateSet) {
+  std::shared_ptr<HDVector> p_vec = m_dataSet->getHDVecByIndex(node);
+  std::vector<int> OutNeighboursP = m_graph.getOutNeighbours(node);
+  insertIntoSet(OutNeighboursP, candidateSet, *p_vec);
+  OutNeighboursP.clear();
+  std::unordered_set<int> inOutNeighbours;
+  while (candidateSet.size() > 0) {
+    int p_star = candidateSet[0];
+    if (inOutNeighbours.count(p_star) == 0) {
+      OutNeighboursP.push_back(p_star);
+      inOutNeighbours.insert(p_star);
+    }
+    if (OutNeighboursP.size() == m_graph.getDegreeThreshold()) {
+      break;
+    }
+
+    auto it = candidateSet.begin();
+    while (it != candidateSet.end()) {
+      int p_dash = *it;
+      if (isToBePruned(p_dash, p_star, node)) {
+        it = candidateSet.erase(it);
+
+      } else {
+        it++;
+      }
+    }
+  }
 }

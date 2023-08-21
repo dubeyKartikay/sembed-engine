@@ -15,7 +15,8 @@ public:
   int m_searchListSize;
   void prune(int node, std::vector<int> &candidateSet);
   SearchResults greedySearch(HDVector queryNode, int k);
-  void insertIntoANN(std::vector<int> &NOut, std::vector<int> & ANNset, HDVector & nod );
+  void insertIntoSet(std::vector<int> &NOut, std::vector<int> &ANNset,
+                     HDVector &nod);
   Vamana(std::unique_ptr<DataSet> dataSet, int degreeThreshold,
          float distanceThreshold = 1.2f);
   Vamana(std::unique_ptr<DataSet> dataSet, Graph graph,
@@ -23,16 +24,13 @@ public:
   Vamana(std::unique_ptr<DataSet> dataSet,
          std::filesystem::path savedVamanaIndexPath,
          float distanceThreshold = 1.2f);
-  void setDistanceThreshold(float alpha){
-    m_distanceThreshold = alpha;
-  };
-  void setSeachListSize(int L){
-    m_searchListSize = L;
-  }
+  void setDistanceThreshold(float alpha) { m_distanceThreshold = alpha; };
+  bool isToBePruned(int p_dash, int p_start, int p);
+  void setSeachListSize(int L) { m_searchListSize = L; }
   // take HDVector reference instead
   std::unique_ptr<std::vector<int>> search(HDVector queryNode, int k);
   void save();
-/*   ~Vamana(); */
+  /*   ~Vamana(); */
 };
 
 #endif // !VAMANA

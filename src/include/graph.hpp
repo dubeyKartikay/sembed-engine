@@ -21,6 +21,10 @@ public:
     int getMediod(){
       return m_mediod;
     }
+
+    int getDegreeThreshold(){
+      return m_degreeThreshold;
+    }
 };
 #endif
 
