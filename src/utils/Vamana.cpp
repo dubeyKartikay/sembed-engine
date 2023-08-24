@@ -13,18 +13,24 @@ Vamana::Vamana(std::unique_ptr<DataSet> datset, int degreeThreshold,
     : m_graph(datset->getN(), degreeThreshold) {
   m_dataSet = std::move(datset);
   m_distanceThreshold = distanceThreshold;
+  m_searchListSize = 100;
+  buildIndex();
 }
 Vamana::Vamana(std::unique_ptr<DataSet> dataSet, Graph Graph,
                float distanceThreshold)
     : m_graph(Graph) {
   m_dataSet = std::move(dataSet);
   m_distanceThreshold = distanceThreshold;
+  m_searchListSize = 100;
+  buildIndex();
 }
 Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
                float distanceThreshold)
     : m_graph(path) {
   m_dataSet = std::move(dataSet);
   m_distanceThreshold = distanceThreshold;
+  m_searchListSize = 100;
+  buildIndex();
 }
 
 void Vamana::insertIntoSet(std::vector<int> &from, std::vector<int> &to,
@@ -58,7 +64,7 @@ void Vamana::insertIntoSet(std::vector<int> &from, std::vector<int> &to,
   }
 }
 
-SearchResults Vamana::greedySearch(HDVector node, int k) {
+SearchResults Vamana::greedySearch(HDVector &node, int k) {
   SearchResults searchResult;
   searchResult.approximateNN.push_back(m_graph.getMediod());
   std::unordered_set<int> visited;
@@ -101,8 +107,9 @@ bool Vamana::isToBePruned(int p_dash, int p_star, int p) {
 }
 
 void Vamana::prune(int node, std::vector<int> &candidateSet) {
+  
   std::shared_ptr<HDVector> p_vec = m_dataSet->getHDVecByIndex(node);
-  std::vector<int> OutNeighboursP = m_graph.getOutNeighbours(node);
+  std::vector<int> &OutNeighboursP = m_graph.getOutNeighbours(node);
   insertIntoSet(OutNeighboursP, candidateSet, *p_vec);
   OutNeighboursP.clear();
   std::unordered_set<int> inOutNeighbours;
@@ -128,3 +135,25 @@ void Vamana::prune(int node, std::vector<int> &candidateSet) {
     }
   }
 }
+
+void Vamana::buildIndex() {
+  std::vector<int> sigma = getPermutation(m_dataSet->getN());
+  for (int &node : sigma) {
+    std::cout << "Making " << node << std::endl;
+    SearchResults greedySearchResult =
+        greedySearch(*m_dataSet->getHDVecByIndex(node), 1);
+    prune(node, greedySearchResult.visited);
+    for (int neighbour : m_graph.getOutNeighbours(node)) {
+      // cant do this
+      m_graph.getOutNeighbours(neighbour).push_back(node);
+      if (m_graph.getOutNeighbours(neighbour).size() >
+          m_graph.getDegreeThreshold()) {
+        prune(neighbour, m_graph.getOutNeighbours(neighbour));
+      }
+    }
+  }
+}
+
+// BIG TODOS
+// 1. CUSTOM DATASTRUCTURE
+// 2. PARALELLIZE THIS ALGORITHM

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include <vector>
+#include "utils.hpp"
 // make private fields private after testing
 class Vamana {
 public:
@@ -14,7 +15,7 @@ public:
   float m_distanceThreshold;
   int m_searchListSize;
   void prune(int node, std::vector<int> &candidateSet);
-  SearchResults greedySearch(HDVector queryNode, int k);
+  SearchResults greedySearch(HDVector & queryNode, int k);
   void insertIntoSet(std::vector<int> &NOut, std::vector<int> &ANNset,
                      HDVector &nod);
   Vamana(std::unique_ptr<DataSet> dataSet, int degreeThreshold,
@@ -28,6 +29,7 @@ public:
   bool isToBePruned(int p_dash, int p_start, int p);
   void setSeachListSize(int L) { m_searchListSize = L; }
   // take HDVector reference instead
+  void buildIndex();
   std::unique_ptr<std::vector<int>> search(HDVector queryNode, int k);
   void save();
   /*   ~Vamana(); */
