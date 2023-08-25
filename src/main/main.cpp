@@ -7,10 +7,10 @@
 #include "vamana.hpp"
 int main(int argc, char ** argv){
     // std::cout << argc << argv[0] << '\n';
-  std::filesystem::path path("../build/testvec.bin");
+  std::filesystem::path path("../build/gvec.bin");
   std::unique_ptr<InMemoryDataSet> dataset = std::make_unique<InMemoryDataSet>(path);
   std::cout << "Loaded Dataset" << "N " << dataset->getN() << " D: "<< dataset->getDimentions() <<std::endl;
-  Vamana v(std::move(dataset),2,1.2f);
+  Vamana v(std::move(dataset),70,1.2f);
   HDVector hdve = *v.m_dataSet->getHDVecByIndex(2);
   Graph g = v.m_graph;
   for (int neight : g.getOutNeighbours(2)) {
