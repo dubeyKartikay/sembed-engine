@@ -35,12 +35,26 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
 
 void Vamana::insertIntoSet(std::vector<int> &from, std::vector<int> &to,
                            HDVector &comparison_vec) {
+  if(&from  == &to){
+    return;
+  }
+  // std::cout << " From " << std::endl;
+  // for (int ele : from) {
+  //   std::cout << ele << " ";
+  // }
+  // std::cout<<std::endl;
+  // std::cout << " To " << std::endl;
+  // for (int ele : to) {
+  //   std::cout << ele << " ";
+  // }
+  // std::cout<<std::endl;
   struct customLess {
     HDVector *qNode;
     Vamana *vamana;
     customLess(HDVector *qNode, Vamana *vamana)
         : qNode(qNode), vamana(vamana){};
-    bool operator()(const int &l, const int &r) {
+    bool operator()(int l, int r) {
+      /*       std::cout << l << " " << r << " "; */
       float d =
           HDVector::distance(*qNode, *(vamana->m_dataSet->getHDVecByIndex(l))) -
           HDVector::distance(*qNode, *(vamana->m_dataSet->getHDVecByIndex(r)));
@@ -51,7 +65,9 @@ void Vamana::insertIntoSet(std::vector<int> &from, std::vector<int> &to,
       }
     }
   };
-  for (int outNode : from) {
+
+  for (const int outNode : from) {
+
     auto pos = std::lower_bound(to.begin(), to.end(), outNode,
                                 customLess(&comparison_vec, this));
     if (pos == to.end()) {
@@ -92,6 +108,7 @@ SearchResults Vamana::greedySearch(HDVector &node, int k) {
   while (searchResult.approximateNN.size() > k) {
     searchResult.approximateNN.pop_back();
   }
+
   return searchResult;
 }
 
@@ -107,7 +124,7 @@ bool Vamana::isToBePruned(int p_dash, int p_star, int p) {
 }
 
 void Vamana::prune(int node, std::vector<int> &candidateSet) {
-  
+
   std::shared_ptr<HDVector> p_vec = m_dataSet->getHDVecByIndex(node);
   std::vector<int> &OutNeighboursP = m_graph.getOutNeighbours(node);
   insertIntoSet(OutNeighboursP, candidateSet, *p_vec);
