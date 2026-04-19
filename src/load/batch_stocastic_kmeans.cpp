@@ -8,7 +8,7 @@ void clusterize_data(DataSet &vector_binary, int k = 40,int M = 32,int iteration
     // selecting random centroids    
     centers.reserve(k);
     for(int center : generateRandomNumbers(k,vector_binary.getN())){
-        centers.push_back(*vector_binary.getHDVecByIndex(center));
+        centers.push_back(*vector_binary.getRecordViewByIndex(center).vector);
     }
 
     

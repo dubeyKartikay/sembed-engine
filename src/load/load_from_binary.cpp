@@ -23,6 +23,5 @@ std::vector<std::vector<float>*> * load_from_binary(std::string path){
 
     // return r_vector_data;
     
-    
-
+    return nullptr;
 }

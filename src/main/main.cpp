@@ -11,7 +11,8 @@ int main(int argc, char ** argv){
   std::unique_ptr<InMemoryDataSet> dataset = std::make_unique<InMemoryDataSet>(path);
   std::cout << "Loaded Dataset" << "N " << dataset->getN() << " D: "<< dataset->getDimentions() <<std::endl;
   Vamana v(std::move(dataset),70,1.2f);
-  HDVector hdve = *v.m_dataSet->getHDVecByIndex(2);
+  RecordView queryRecord = v.m_dataSet->getRecordViewByIndex(2);
+  HDVector hdve = *queryRecord.vector;
   Graph g = v.m_graph;
   for (int neight : g.getOutNeighbours(2)) {
     std::cout << neight << " ";
@@ -21,7 +22,9 @@ int main(int argc, char ** argv){
   v.setSeachListSize(125);
   SearchResults s = v.greedySearch( hdve, 1); 
   for (int ANN : s.approximateNN) {
-    std::cout << ANN << " " << HDVector::distance(hdve, *v.m_dataSet->getHDVecByIndex(ANN)) <<  std::endl;
+    RecordView annRecord = v.m_dataSet->getRecordViewByIndex(ANN);
+    std::cout << annRecord.recordId << " "
+              << HDVector::distance(hdve, *annRecord.vector) <<  std::endl;
   }
   std::cout<< "VISITDE" << std::endl;
   for (int vis : s.visited) {

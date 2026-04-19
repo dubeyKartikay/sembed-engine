@@ -7,16 +7,26 @@
 #define DATASET
 
 namespace fs = std::filesystem;
+
+struct RecordView {
+  long long recordId;
+  std::shared_ptr<HDVector> vector;
+};
+
 class DataSet {
 protected:
   long long int n;
   long long int dimentions;
+  long long int storedDimentions;
   std::fstream m_file;
 
 public:
   DataSet() = default;
   DataSet(const DataSet &) = delete;
-  virtual std::shared_ptr<HDVector> getHDVecByIndex(const int &index) = 0;
+  virtual ~DataSet() = default;
+  virtual RecordView getRecordViewByIndex(const int &index) = 0;
+  virtual std::unique_ptr<std::vector<RecordView>>
+  getNRecordViewsFromIndex(const int &index, const int &n) = 0;
   virtual std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
   getNHDVectorsFromIndex(const int &index, const int &n) = 0;
   const int getN() const { return this->n; }
@@ -27,7 +37,9 @@ public:
 class FileDataSet : public DataSet {
 public:
   FileDataSet(fs::path path);
-  std::shared_ptr<HDVector> getHDVecByIndex(const int &index);
+  RecordView getRecordViewByIndex(const int &index);
+  std::unique_ptr<std::vector<RecordView>>
+  getNRecordViewsFromIndex(const int &index, const int &n);
   std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
   getNHDVectorsFromIndex(const int &index, const int &n);
   using DataSet::getDimentions;
@@ -37,12 +49,14 @@ public:
 
 class InMemoryDataSet : public DataSet {
 private:
-  std::vector<std::shared_ptr<HDVector>> m_data;
+  std::vector<RecordView> m_records;
   void readDataFromFile();
 
 public:
   InMemoryDataSet(fs::path path);
-  std::shared_ptr<HDVector> getHDVecByIndex(const int &index);
+  RecordView getRecordViewByIndex(const int &index);
+  std::unique_ptr<std::vector<RecordView>>
+  getNRecordViewsFromIndex(const int &index, const int &n);
   std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
   getNHDVectorsFromIndex(const int &index, const int &n);
   using DataSet::getDimentions;

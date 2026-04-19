@@ -7,14 +7,14 @@ TEST(LoadingBinary, LoadingGLOVEBinaryOnDisk) {
   std::filesystem::path path("../build/gvec.bin");
   FileDataSet dataset(path);
   ASSERT_EQ(dataset.getN(), 400000);
-  ASSERT_EQ(dataset.getDimentions(), 51);
+  ASSERT_EQ(dataset.getDimentions(), 50);
 }
 
 TEST(LoadingBinary, CheckingFirstElementInTheLoadedGLOVEOnDisk) {
   std::filesystem::path path("../build/gvec.bin");
   FileDataSet dataset(path);
   std::vector<float> *data = new std::vector<float>(
-      {0,         0.418,    0.24968,   -0.41242,    0.1217,    0.34527,
+      {0.418,    0.24968,   -0.41242,    0.1217,    0.34527,
        -0.044457, -0.49688, -0.17862,  -0.00066023, -0.6566,   0.27843,
        -0.14767,  -0.55677, 0.14658,   -0.0095095,  0.011658,  0.10204,
        -0.12792,  -0.8443,  -0.12181,  -0.016801,   -0.33279,  -0.1552,
@@ -23,7 +23,9 @@ TEST(LoadingBinary, CheckingFirstElementInTheLoadedGLOVEOnDisk) {
        0.0074449, 0.17778,  -0.15897,  0.012041,    -0.054223, -0.29871,
        -0.15749,  -0.34758, -0.045637, -0.44251,    0.18785,   0.0027849,
        -0.18411,  -0.11514, -0.78581});
-  std::shared_ptr<HDVector> hdvec = dataset.getHDVecByIndex(0);
+  RecordView record = dataset.getRecordViewByIndex(0);
+  ASSERT_EQ(record.recordId, 0);
+  std::shared_ptr<HDVector> hdvec = record.vector;
   for (int i = 0; i < dataset.getDimentions(); i++) {
     EXPECT_EQ((*hdvec)[i], data->at(i));
   }
@@ -34,8 +36,7 @@ TEST(LoadingBinary, CheckingLastElementInTheLoadedGLOVEOnDisk) {
   std::filesystem::path path("../build/gvec.bin");
   FileDataSet dataset(path);
   std::vector<float> *data2 =
-      new std::vector<float>({(float)(dataset.getN() - 1),
-                              0.072617,
+      new std::vector<float>({0.072617,
                               -0.51393,
                               0.4728,
                               -0.52202,
@@ -86,8 +87,9 @@ TEST(LoadingBinary, CheckingLastElementInTheLoadedGLOVEOnDisk) {
                               -0.59021,
                               0.55559});
 
-  std::shared_ptr<HDVector> hdvec2 =
-      dataset.getHDVecByIndex(dataset.getN() - 1);
+  RecordView record = dataset.getRecordViewByIndex(dataset.getN() - 1);
+  ASSERT_EQ(record.recordId, dataset.getN() - 1);
+  std::shared_ptr<HDVector> hdvec2 = record.vector;
   for (int i = 0; i < dataset.getDimentions(); i++) {
     EXPECT_EQ((*hdvec2)[i], data2->at(i));
   }

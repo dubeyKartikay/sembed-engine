@@ -56,8 +56,8 @@ void Vamana::insertIntoSet(std::vector<int> &from, std::vector<int> &to,
     bool operator()(int l, int r) {
       /*       std::cout << l << " " << r << " "; */
       float d =
-          HDVector::distance(*qNode, *(vamana->m_dataSet->getHDVecByIndex(l))) -
-          HDVector::distance(*qNode, *(vamana->m_dataSet->getHDVecByIndex(r)));
+          HDVector::distance(*qNode, *(vamana->m_dataSet->getRecordViewByIndex(l).vector)) -
+          HDVector::distance(*qNode, *(vamana->m_dataSet->getRecordViewByIndex(r).vector));
       if (d == 0) {
         return l < r;
       } else {
@@ -113,9 +113,9 @@ SearchResults Vamana::greedySearch(HDVector &node, int k) {
 }
 
 bool Vamana::isToBePruned(int p_dash, int p_star, int p) {
-  std::shared_ptr<HDVector> p_dash_vec = m_dataSet->getHDVecByIndex(p_dash);
-  std::shared_ptr<HDVector> p_star_vec = m_dataSet->getHDVecByIndex(p_star);
-  std::shared_ptr<HDVector> p_vec = m_dataSet->getHDVecByIndex(p);
+  std::shared_ptr<HDVector> p_dash_vec = m_dataSet->getRecordViewByIndex(p_dash).vector;
+  std::shared_ptr<HDVector> p_star_vec = m_dataSet->getRecordViewByIndex(p_star).vector;
+  std::shared_ptr<HDVector> p_vec = m_dataSet->getRecordViewByIndex(p).vector;
   float distanceFromP_starToP_dash =
       HDVector::distance(*p_star_vec, *p_dash_vec);
   float distanceFromPToP_dash = HDVector::distance(*p_vec, *p_dash_vec);
@@ -125,7 +125,7 @@ bool Vamana::isToBePruned(int p_dash, int p_star, int p) {
 
 void Vamana::prune(int node, std::vector<int> &candidateSet) {
 
-  std::shared_ptr<HDVector> p_vec = m_dataSet->getHDVecByIndex(node);
+  std::shared_ptr<HDVector> p_vec = m_dataSet->getRecordViewByIndex(node).vector;
   std::vector<int> &OutNeighboursP = m_graph.getOutNeighbours(node);
   insertIntoSet(OutNeighboursP, candidateSet, *p_vec);
   OutNeighboursP.clear();
@@ -158,7 +158,7 @@ void Vamana::buildIndex() {
   for (int &node : sigma) {
     std::cout << "Making " << node << std::endl;
     SearchResults greedySearchResult =
-        greedySearch(*m_dataSet->getHDVecByIndex(node), 1);
+        greedySearch(*m_dataSet->getRecordViewByIndex(node).vector, 1);
     prune(node, greedySearchResult.visited);
     for (int neighbour : m_graph.getOutNeighbours(node)) {
       // cant do this

@@ -27,7 +27,7 @@ float HDVector::distance(const HDVector &vec1, const HDVector &vec2){
     throw std::invalid_argument("Vector dimentions do not match, can't find distace between vectors of different dimentions");
   }
   double dist = 0;
-  for (int i = 1; i < vec1.getDimention(); i++) {
+  for (int i = 0; i < vec1.getDimention(); i++) {
     dist += (vec1[i]-vec2[i])*(vec1[i]-vec2[i]);
   }
   dist = std::sqrt(dist);
