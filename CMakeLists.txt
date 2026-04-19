@@ -33,6 +33,7 @@ set(TEST_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_hdvec.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_greedySearch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_dataset_api.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/Test_edgeCases.cpp
 )
 
 add_executable(Test ${TEST_SRC_FILES}) 

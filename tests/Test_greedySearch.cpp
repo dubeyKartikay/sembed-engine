@@ -1,15 +1,363 @@
-#include <algorithm>
+#include "vamana.hpp"
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
+#include <string>
+#include <unordered_set>
 #include <vector>
-#include "vamana.hpp"
-TEST(TestGreedySearch,TestingGreedySearchSimpleGraph){
-  std::filesystem::path path("../build/testvec.bin");
-  std::unique_ptr<InMemoryDataSet> dataset = std::make_unique<InMemoryDataSet>(path);
-  Vamana v(std::move(dataset),2);
-  v.setSeachListSize(100);
-  HDVector hdve = *v.m_dataSet->getRecordViewByIndex(2).vector;
-  SearchResults s = v.greedySearch( hdve, 1 ); 
-  ASSERT_EQ(s.approximateNN.at(0), 2);
-} 
+
+namespace {
+
+std::string sanitizePathComponent(std::string value) {
+  for (char &ch : value) {
+    const bool is_alnum = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                          (ch >= '0' && ch <= '9');
+    if (!is_alnum && ch != '_' && ch != '-') {
+      ch = '_';
+    }
+  }
+  return value;
+}
+
+struct AnnFixtureData {
+  long long n = 6;
+  long long dimensions = 3;
+  std::vector<std::vector<float>> rows = {
+      {0.0f, 0.0f, 0.0f},
+      {1.0f, 1.0f, 0.0f},
+      {2.0f, 2.0f, 0.0f},
+      {3.0f, 10.0f, 10.0f},
+      {4.0f, 11.0f, 10.0f},
+      {5.0f, 12.0f, 10.0f},
+  };
+};
+
+AnnFixtureData makeLargeClusteredFixture() {
+  AnnFixtureData fixture;
+  fixture.dimensions = 3;
+  fixture.rows.clear();
+
+  constexpr int clusterCount = 4;
+  constexpr int pointsPerCluster = 8;
+  int id = 0;
+  for (int cluster = 0; cluster < clusterCount; ++cluster) {
+    const float baseX = static_cast<float>(cluster * 100);
+    const float baseY = (cluster % 2 == 0) ? 0.0f : 80.0f;
+    for (int point = 0; point < pointsPerCluster; ++point) {
+      const float x = baseX + static_cast<float>(point);
+      const float y = baseY + static_cast<float>(point % 3) * 0.5f;
+      fixture.rows.push_back({static_cast<float>(id), x, y});
+      ++id;
+    }
+  }
+
+  fixture.n = static_cast<long long>(fixture.rows.size());
+  return fixture;
+}
+
+std::filesystem::path makeDatasetFile(const std::string &name,
+                                      const AnnFixtureData &fixture) {
+  const auto fixture_dir =
+      std::filesystem::current_path() / "build" / "test-fixtures";
+  std::filesystem::create_directories(fixture_dir);
+  const auto path = fixture_dir / name;
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out.is_open()) {
+    throw std::runtime_error("failed to create deterministic ANN fixture");
+  }
+
+  out.write(reinterpret_cast<const char *>(&fixture.n), sizeof(fixture.n));
+  out.write(reinterpret_cast<const char *>(&fixture.dimensions),
+            sizeof(fixture.dimensions));
+  for (const auto &row : fixture.rows) {
+    out.write(reinterpret_cast<const char *>(row.data()),
+              static_cast<std::streamsize>(row.size() * sizeof(float)));
+  }
+
+  return path;
+}
+
+float squaredDistance(const std::vector<float> &left,
+                      const std::vector<float> &right) {
+  float total = 0.0f;
+  for (int i = 0; i < static_cast<int>(left.size()); ++i) {
+    const float delta = left[i] - right[i];
+    total += delta * delta;
+  }
+  return total;
+}
+
+std::vector<int> exactNearestIds(const AnnFixtureData &fixture,
+                                 const std::vector<float> &query, int k) {
+  std::vector<std::pair<float, int>> ranked;
+  ranked.reserve(fixture.rows.size());
+  for (const auto &row : fixture.rows) {
+    const std::vector<float> payload(row.begin() + 1, row.end());
+    ranked.push_back(
+        {squaredDistance(payload, query), static_cast<int>(row.front())});
+  }
+  std::sort(ranked.begin(), ranked.end(),
+            [](const auto &left, const auto &right) {
+              if (left.first == right.first) {
+                return left.second < right.second;
+              }
+              return left.first < right.first;
+            });
+
+  std::vector<int> result;
+  result.reserve(k);
+  for (int i = 0; i < k && i < static_cast<int>(ranked.size()); ++i) {
+    result.push_back(ranked[i].second);
+  }
+  return result;
+}
+
+template <typename DataSetType>
+class DeterministicAnnTest : public ::testing::Test {
+protected:
+  AnnFixtureData fixture;
+  std::filesystem::path datasetPath;
+
+  void SetUp() override {
+    const auto *suite_name = ::testing::UnitTest::GetInstance()
+                                 ->current_test_info()
+                                 ->test_suite_name();
+    const auto *test_name =
+        ::testing::UnitTest::GetInstance()->current_test_info()->name();
+    datasetPath = makeDatasetFile(
+        std::string("vamana_") + sanitizePathComponent(suite_name) + "_" +
+            sanitizePathComponent(test_name) + ".bin",
+        fixture);
+  }
+
+  void TearDown() override {
+    std::error_code ec;
+    std::filesystem::remove(datasetPath, ec);
+  }
+
+  std::unique_ptr<DataSetType> makeDataSet() {
+    return std::make_unique<DataSetType>(datasetPath);
+  }
+};
+
+using DeterministicDataSets = ::testing::Types<FileDataSet, InMemoryDataSet>;
+TYPED_TEST_SUITE(DeterministicAnnTest, DeterministicDataSets);
+
+template <typename DataSetType>
+class LargeDeterministicAnnTest : public ::testing::Test {
+protected:
+  AnnFixtureData fixture = makeLargeClusteredFixture();
+  std::filesystem::path datasetPath;
+
+  void SetUp() override {
+    const auto *suite_name = ::testing::UnitTest::GetInstance()
+                                 ->current_test_info()
+                                 ->test_suite_name();
+    const auto *test_name =
+        ::testing::UnitTest::GetInstance()->current_test_info()->name();
+    datasetPath = makeDatasetFile(
+        std::string("vamana_") + sanitizePathComponent(suite_name) + "_" +
+            sanitizePathComponent(test_name) + ".bin",
+        fixture);
+  }
+
+  void TearDown() override {
+    std::error_code ec;
+    std::filesystem::remove(datasetPath, ec);
+  }
+
+  std::unique_ptr<DataSetType> makeDataSet() {
+    return std::make_unique<DataSetType>(datasetPath);
+  }
+};
+
+TYPED_TEST_SUITE(LargeDeterministicAnnTest, DeterministicDataSets);
+
+TYPED_TEST(DeterministicAnnTest, BuildIndexKeepsBoundedUniqueNeighbours) {
+  std::srand(0);
+  auto dataSet = this->makeDataSet();
+  Vamana vamana(std::move(dataSet), 2);
+
+  for (int node = 0; node < this->fixture.n; ++node) {
+    const std::vector<int> &neighbours = vamana.m_graph.getOutNeighbours(node);
+    EXPECT_FALSE(neighbours.empty());
+    EXPECT_LE(neighbours.size(), 2U);
+
+    std::unordered_set<int> unique;
+    for (int neighbour : neighbours) {
+      EXPECT_NE(neighbour, node);
+      unique.insert(neighbour);
+    }
+    EXPECT_EQ(unique.size(), neighbours.size());
+  }
+}
+
+TEST(VamanaIndexConstruction, BuildIndexDoesNotDuplicateExistingBacklinks) {
+  const AnnFixtureData fixture;
+  const auto *test_info =
+      ::testing::UnitTest::GetInstance()->current_test_info();
+  const auto datasetPath = makeDatasetFile(
+      std::string("vamana_") + sanitizePathComponent(test_info->test_suite_name()) +
+          "_" + sanitizePathComponent(test_info->name()) + ".bin",
+      fixture);
+
+  std::srand(0);
+  auto dataSet = std::make_unique<FileDataSet>(datasetPath);
+  Vamana vamana(std::move(dataSet), 3);
+
+  // Seed a reciprocal edge from a late node back to an early node in the fixed
+  // permutation order so the duplicate backlink survives the build.
+  vamana.m_graph.setOutNeighbours(0, {2});
+  vamana.m_graph.setOutNeighbours(2, {0});
+  for (int node = 1; node < fixture.n; ++node) {
+    if (node == 2) {
+      continue;
+    }
+    vamana.m_graph.setOutNeighbours(node, {2});
+  }
+
+  vamana.buildIndex();
+
+  for (int node = 0; node < fixture.n; ++node) {
+    const auto &neighbours = vamana.m_graph.getOutNeighbours(node);
+    std::unordered_set<int> uniqueNonSelfNeighbours;
+    size_t nonSelfCount = 0;
+
+    for (int neighbour : neighbours) {
+      if (neighbour == node) {
+        continue;
+      }
+      ++nonSelfCount;
+      uniqueNonSelfNeighbours.insert(neighbour);
+    }
+
+    EXPECT_EQ(uniqueNonSelfNeighbours.size(), nonSelfCount)
+        << "node " << node << " contains duplicated non-self neighbours";
+  }
+
+  std::error_code ec;
+  std::filesystem::remove(datasetPath, ec);
+}
+
+TYPED_TEST(DeterministicAnnTest, SelfQueriesReturnExactRecord) {
+  std::srand(0);
+  auto dataSet = this->makeDataSet();
+  Vamana vamana(std::move(dataSet), 3);
+  vamana.setSeachListSize(this->fixture.n);
+
+  for (int row_index = 0; row_index < static_cast<int>(this->fixture.rows.size());
+       ++row_index) {
+    const std::vector<float> queryValues(this->fixture.rows[row_index].begin() + 1,
+                                         this->fixture.rows[row_index].end());
+    HDVector query(queryValues);
+    SearchResults results = vamana.greedySearch(query, 1);
+
+    ASSERT_EQ(results.approximateNN.size(), 1U);
+    EXPECT_EQ(results.approximateNN.front(), row_index);
+  }
+}
+
+TYPED_TEST(DeterministicAnnTest, GreedySearchReturnsCandidatesSortedByDistance) {
+  std::srand(0);
+  auto dataSet = this->makeDataSet();
+  Vamana vamana(std::move(dataSet), 3);
+  vamana.setSeachListSize(this->fixture.n);
+
+  const std::vector<float> queryValues = {11.1f, 10.0f};
+  HDVector query(queryValues);
+  SearchResults results = vamana.greedySearch(query, 3);
+
+  ASSERT_EQ(results.approximateNN.size(), 3U);
+
+  std::unordered_set<int> unique;
+  float previousDistance = -1.0f;
+  for (int candidate : results.approximateNN) {
+    unique.insert(candidate);
+
+    const auto record = vamana.m_dataSet->getRecordViewByIndex(candidate);
+    std::vector<float> payload(record.vector->getDimention(), 0.0f);
+    for (int dim = 0; dim < record.vector->getDimention(); ++dim) {
+      payload[dim] = (*record.vector)[dim];
+    }
+    const float currentDistance = squaredDistance(payload, queryValues);
+    EXPECT_GE(currentDistance, previousDistance);
+    previousDistance = currentDistance;
+  }
+  EXPECT_EQ(unique.size(), results.approximateNN.size());
+}
+
+TYPED_TEST(DeterministicAnnTest,
+           GreedySearchMatchesExactNearestNeighborOnSeparatedQuery) {
+  std::srand(0);
+  auto dataSet = this->makeDataSet();
+  Vamana vamana(std::move(dataSet), 3);
+  vamana.setSeachListSize(this->fixture.n);
+
+  const std::vector<float> queryValues = {11.1f, 10.0f};
+  HDVector query(queryValues);
+  SearchResults results = vamana.greedySearch(query, 1);
+  const std::vector<int> exact = exactNearestIds(this->fixture, queryValues, 1);
+
+  ASSERT_EQ(results.approximateNN.size(), 1U);
+  ASSERT_EQ(exact.size(), 1U);
+  EXPECT_EQ(results.approximateNN.front(), exact.front());
+}
+
+TYPED_TEST(LargeDeterministicAnnTest, BuildIndexKeepsBoundedUniqueNeighbours) {
+  std::srand(0);
+  auto dataSet = this->makeDataSet();
+  Vamana vamana(std::move(dataSet), 5);
+
+  for (int node = 0; node < this->fixture.n; ++node) {
+    const std::vector<int> &neighbours = vamana.m_graph.getOutNeighbours(node);
+    EXPECT_FALSE(neighbours.empty());
+    EXPECT_LE(neighbours.size(), 5U);
+
+    std::unordered_set<int> unique;
+    for (int neighbour : neighbours) {
+      EXPECT_NE(neighbour, node);
+      unique.insert(neighbour);
+    }
+    EXPECT_EQ(unique.size(), neighbours.size());
+  }
+}
+
+TYPED_TEST(LargeDeterministicAnnTest, SelfQueriesReturnExactRecordAcrossGraph) {
+  std::srand(0);
+  auto dataSet = this->makeDataSet();
+  Vamana vamana(std::move(dataSet), 6);
+  vamana.setSeachListSize(this->fixture.n);
+
+  for (int row_index = 0; row_index < static_cast<int>(this->fixture.rows.size());
+       ++row_index) {
+    const std::vector<float> queryValues(this->fixture.rows[row_index].begin() + 1,
+                                         this->fixture.rows[row_index].end());
+    HDVector query(queryValues);
+    SearchResults results = vamana.greedySearch(query, 1);
+
+    ASSERT_EQ(results.approximateNN.size(), 1U);
+    EXPECT_EQ(results.approximateNN.front(), row_index);
+  }
+}
+
+TYPED_TEST(LargeDeterministicAnnTest,
+           GreedySearchMatchesExactTopKOnSeparatedClusterQuery) {
+  std::srand(0);
+  auto dataSet = this->makeDataSet();
+  Vamana vamana(std::move(dataSet), 6);
+  vamana.setSeachListSize(this->fixture.n);
+
+  const std::vector<float> queryValues = {203.25f, 0.5f};
+  HDVector query(queryValues);
+  SearchResults results = vamana.greedySearch(query, 5);
+  const std::vector<int> exact = exactNearestIds(this->fixture, queryValues, 5);
+
+  ASSERT_EQ(results.approximateNN.size(), 5U);
+  ASSERT_EQ(exact.size(), 5U);
+  EXPECT_EQ(results.approximateNN, exact);
+}
+
+} // namespace

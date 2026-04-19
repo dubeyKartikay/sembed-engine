@@ -16,7 +16,7 @@ public:
   int m_searchListSize;
   void prune(int node, std::vector<int> &candidateSet);
   SearchResults greedySearch(HDVector & queryNode, int k);
-  void insertIntoSet(std::vector<int> &NOut, std::vector<int> &ANNset,
+  void insertIntoSet(const std::vector<int> &NOut, std::vector<int> &ANNset,
                      HDVector &nod);
   Vamana(std::unique_ptr<DataSet> dataSet, int degreeThreshold,
          float distanceThreshold = 1.2f);

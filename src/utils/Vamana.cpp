@@ -32,39 +32,27 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
   m_searchListSize = 100;
   buildIndex();
 }
-
-void Vamana::insertIntoSet(std::vector<int> &from, std::vector<int> &to,
-                           HDVector &comparison_vec) {
-  if(&from  == &to){
-    return;
-  }
-  // std::cout << " From " << std::endl;
-  // for (int ele : from) {
-  //   std::cout << ele << " ";
-  // }
-  // std::cout<<std::endl;
-  // std::cout << " To " << std::endl;
-  // for (int ele : to) {
-  //   std::cout << ele << " ";
-  // }
-  // std::cout<<std::endl;
-  struct customLess {
+struct customLess {
     HDVector *qNode;
     Vamana *vamana;
     customLess(HDVector *qNode, Vamana *vamana)
         : qNode(qNode), vamana(vamana){};
     bool operator()(int l, int r) {
-      /*       std::cout << l << " " << r << " "; */
-      float d =
-          HDVector::distance(*qNode, *(vamana->m_dataSet->getRecordViewByIndex(l).vector)) -
-          HDVector::distance(*qNode, *(vamana->m_dataSet->getRecordViewByIndex(r).vector));
-      if (d == 0) {
+      const float leftDistance =
+          HDVector::distance(*qNode,
+                             *(vamana->m_dataSet->getRecordViewByIndex(l).vector));
+      const float rightDistance =
+          HDVector::distance(*qNode,
+                             *(vamana->m_dataSet->getRecordViewByIndex(r).vector));
+      if (leftDistance == rightDistance) {
         return l < r;
-      } else {
-        return d < 0;
       }
+      return leftDistance < rightDistance;
     }
   };
+void Vamana::insertIntoSet(const std::vector<int> &from, std::vector<int> &to,
+                           HDVector &comparison_vec) {
+  
 
   for (const int outNode : from) {
 
@@ -126,30 +114,38 @@ bool Vamana::isToBePruned(int p_dash, int p_star, int p) {
 void Vamana::prune(int node, std::vector<int> &candidateSet) {
 
   std::shared_ptr<HDVector> p_vec = m_dataSet->getRecordViewByIndex(node).vector;
-  std::vector<int> &OutNeighboursP = m_graph.getOutNeighbours(node);
-  insertIntoSet(OutNeighboursP, candidateSet, *p_vec);
-  OutNeighboursP.clear();
+  const std::vector<int> &outNeighboursP = m_graph.getOutNeighbours(node);
+  std::vector<int> candidates = candidateSet;
+  insertIntoSet(outNeighboursP, candidates, *p_vec);
+  candidates.erase(std::remove(candidates.begin(), candidates.end(), node),
+                   candidates.end());
+  std::sort(candidates.begin(), candidates.end(),
+            customLess(&*p_vec, this));
+  m_graph.clearOutNeighbours(node);
   std::unordered_set<int> inOutNeighbours;
-  while (candidateSet.size() > 0) {
-    int p_star = candidateSet[0];
+  while (candidates.size() > 0) {
+    int p_star = candidates[0];
     if (inOutNeighbours.count(p_star) == 0) {
-      OutNeighboursP.push_back(p_star);
+      m_graph.addOutNeighbourUnique(node, p_star);
       inOutNeighbours.insert(p_star);
     }
-    if (OutNeighboursP.size() == m_graph.getDegreeThreshold()) {
+    if (m_graph.getOutNeighbours(node).size() == m_graph.getDegreeThreshold()) {
       break;
     }
 
-    auto it = candidateSet.begin();
-    while (it != candidateSet.end()) {
+    auto it = candidates.begin();
+    while (it != candidates.end()) {
       int p_dash = *it;
       if (isToBePruned(p_dash, p_star, node)) {
-        it = candidateSet.erase(it);
+        it = candidates.erase(it);
 
       } else {
         it++;
       }
     }
+  }
+  if (&candidateSet != &m_graph.getOutNeighbours(node)) {
+    candidateSet = candidates;
   }
 }
 
@@ -161,8 +157,7 @@ void Vamana::buildIndex() {
         greedySearch(*m_dataSet->getRecordViewByIndex(node).vector, 1);
     prune(node, greedySearchResult.visited);
     for (int neighbour : m_graph.getOutNeighbours(node)) {
-      // cant do this
-      m_graph.getOutNeighbours(neighbour).push_back(node);
+      m_graph.addOutNeighbourUnique(neighbour, node);
       if (m_graph.getOutNeighbours(neighbour).size() >
           m_graph.getDegreeThreshold()) {
         prune(neighbour, m_graph.getOutNeighbours(neighbour));

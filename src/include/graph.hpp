@@ -17,6 +17,9 @@ public:
     Graph(std::filesystem::path path);
 /*     ~Graph(); */
     std::vector<int> & getOutNeighbours(const int& node);
+    void addOutNeighbourUnique(const int &from, const int &to);
+    void setOutNeighbours(const int &node, const std::vector<int> &neighbours);
+    void clearOutNeighbours(const int &node);
     // void save();
     int getMediod(){
       return m_mediod;

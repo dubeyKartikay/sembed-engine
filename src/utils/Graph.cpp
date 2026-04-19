@@ -15,6 +15,21 @@ Graph :: Graph(int numberOfNodes,int R){
 std::vector<int> & Graph::getOutNeighbours(const int& node){
   return m_adj_list[node]; 
 }
+
+void Graph::addOutNeighbourUnique(const int &from, const int &to) {
+  std::vector<int> &neighbours = m_adj_list[from];
+  if (std::find(neighbours.begin(), neighbours.end(), to) == neighbours.end()) {
+    neighbours.push_back(to);
+  }
+}
+
+void Graph::setOutNeighbours(const int &node, const std::vector<int> &neighbours) {
+  m_adj_list[node] = neighbours;
+}
+
+void Graph::clearOutNeighbours(const int &node) {
+  m_adj_list[node].clear();
+}
 // todo- test
 Graph::Graph(std::filesystem::path path){
   std::ifstream file(path);
