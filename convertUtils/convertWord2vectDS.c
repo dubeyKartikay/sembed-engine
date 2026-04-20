@@ -13,6 +13,7 @@
 //  limitations under the License.
 
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
@@ -75,17 +76,17 @@ int main(int argc, char **argv) {
   fwrite(&words,sizeof(words),1,f_out);
   long long int tot_size = size+1;
   fwrite(&(tot_size),sizeof(tot_size),1,f_out);
-  for (float i = 0; i < words; i++)
+  for (long long int i = 0; i < words; i++)
   {
-    // fprintf(f_out,"%lld",i);
-    fwrite(&i,sizeof(i),1,f_out);
-    fwrite(&M[((int)i)*size],sizeof(float),size,f_out);
+    const int64_t id = (int64_t)i;
+    fwrite(&id,sizeof(id),1,f_out);
+    fwrite(&M[i*size],sizeof(float),size,f_out);
     // for ( a = 0; a < size; a++)
     // {
     //   // fprintf(f_out,"%f",M[a+i*size]);
     //   fwrite(M[a+i*size],sizeof(M[a+i*size]),1,f_out);
     // }
-    fwrite(&vocab[((int)i)*max_w],max_w,1,f_word);
+    fwrite(&vocab[i*max_w],max_w,1,f_word);
     
   }
   

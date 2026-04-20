@@ -4,6 +4,7 @@
 #include "HDVector.hpp"
 #include "dataset.hpp"
 #include "graph.hpp"
+#include "test_utils.hpp"
 #include "utils.hpp"
 #include "vamana.hpp"
 
@@ -24,56 +25,13 @@
 
 namespace {
 
-std::string sanitize(std::string value) {
-  for (char &ch : value) {
-    const bool is_alnum = (ch >= 'a' && ch <= 'z') ||
-                          (ch >= 'A' && ch <= 'Z') ||
-                          (ch >= '0' && ch <= '9');
-    if (!is_alnum && ch != '_' && ch != '-') {
-      ch = '_';
-    }
-  }
-  return value;
-}
-
-std::filesystem::path fixtureDir() {
-  const auto dir = std::filesystem::current_path() / "build" / "test-fixtures";
-  std::filesystem::create_directories(dir);
-  return dir;
-}
-
 std::filesystem::path uniqueFixturePath(const std::string &tag) {
-  const auto *info = ::testing::UnitTest::GetInstance()->current_test_info();
-  const std::string suite =
-      info ? sanitize(info->test_suite_name()) : "unknown_suite";
-  const std::string name = info ? sanitize(info->name()) : "unknown_test";
-  return fixtureDir() /
-         ("contract_regressions_" + suite + "_" + name + "_" + tag + ".bin");
+  return testutils::uniqueFixturePath("contract_regressions", tag);
 }
 
-struct ScopedFile {
-  std::filesystem::path path;
-  ~ScopedFile() {
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
-  }
-};
-
-std::filesystem::path writeDataset(const std::filesystem::path &path,
-                                   int64_t n, int64_t storedDim,
-                                   const std::vector<std::vector<float>> &rows) {
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to create dataset fixture");
-  }
-  out.write(reinterpret_cast<const char *>(&n), sizeof(n));
-  out.write(reinterpret_cast<const char *>(&storedDim), sizeof(storedDim));
-  for (const auto &row : rows) {
-    out.write(reinterpret_cast<const char *>(row.data()),
-              static_cast<std::streamsize>(row.size() * sizeof(float)));
-  }
-  return path;
-}
+using ScopedFile = testutils::ScopedPathCleanup;
+using testutils::fixtureDir;
+using testutils::writeDatasetFile;
 
 std::vector<std::vector<float>> makeClusteredRows(int64_t &outN,
                                                   int64_t &outStored) {
@@ -300,7 +258,7 @@ TEST(HDVectorContractRegression, DistanceObeysTriangleInequality) {
 TEST(DataSetContractRegression, GetNReturnTypeMatchesLongLongStorage) {
   const auto path = uniqueFixturePath("n_return_type");
   ScopedFile cleanup{path};
-  writeDataset(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
+  writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
   InMemoryDataSet ds(path);
 
   using returned_type = std::remove_cvref_t<decltype(ds.getN())>;
@@ -313,7 +271,7 @@ TEST(DataSetContractRegression, GetNReturnTypeMatchesLongLongStorage) {
 TEST(DataSetContractRegression, GetDimensionsReturnTypeMatchesLongLongStorage) {
   const auto path = uniqueFixturePath("dim_return_type");
   ScopedFile cleanup{path};
-  writeDataset(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
+  writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
   InMemoryDataSet ds(path);
 
   using returned_type = std::remove_cvref_t<decltype(ds.getDimentions())>;
@@ -348,7 +306,7 @@ TEST(DataSetContractRegression, NegativeRecordCountHeaderIsRejected) {
 TEST(DataSetContractRegression, NegativeIndexGetRecordViewThrowsOutOfRange) {
   const auto path = uniqueFixturePath("negative_index");
   ScopedFile cleanup{path};
-  writeDataset(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
+  writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
   InMemoryDataSet ds(path);
 
   EXPECT_THROW((void)ds.getRecordViewByIndex(-1), std::out_of_range);
@@ -386,7 +344,7 @@ TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
   int64_t n = 0;
   int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -426,7 +384,7 @@ TEST(VamanaContractRegression, SetDistanceThresholdIsObservable) {
   int64_t n = 0;
   int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -453,7 +411,7 @@ TEST(VamanaContractRegression, GreedySearchDoesNotReturnInternalMarkers) {
   int64_t n = 0;
   int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -485,7 +443,7 @@ TEST(VamanaContractRegression, GreedySearchIsDeterministicForIdenticalQueries) {
   int64_t n = 0;
   int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -510,7 +468,7 @@ TEST(VamanaContractRegression, PruneOnEmptyCandidateSetLeavesNodeStranded) {
   int64_t n = 0;
   int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -532,7 +490,7 @@ TEST(VamanaContractRegression, PruneOnEmptyCandidateSetLeavesNodeStranded) {
 TEST(VamanaContractRegression, IsToBePrunedWithZeroAlphaAlwaysPrunes) {
   const auto path = uniqueFixturePath("zero_alpha");
   ScopedFile cleanup{path};
-  writeDataset(path, 3, 3,
+  writeDatasetFile(path, 3, 3,
                {{0.0f, 0.0f, 0.0f},
                 {1.0f, 1.0f, 0.0f},
                 {2.0f, 2.0f, 0.0f}});
@@ -558,7 +516,7 @@ TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   int64_t n = 0;
   int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);

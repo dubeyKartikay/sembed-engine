@@ -1,32 +1,31 @@
-#include <cstdint>
 #include <algorithm>
-#include <memory>
-#include <vector>
 #include <filesystem>
+#include <memory>
+#include "node_types.hpp"
 #ifndef GRAPH
 #define GRAPH
 class Graph
 {
 private:
-    std::vector<std::vector<int64_t>> m_adj_list;
+    std::vector<NodeList> m_adj_list;
     uint64_t m_degreeThreshold;
-    int64_t m_mediod;
+    OptionalNodeId m_mediod;
 public:
     Graph() = default;
     
-    Graph(int64_t numberOfNodes, int64_t R);
+    Graph(NodeId numberOfNodes, uint64_t R);
     Graph(std::filesystem::path path);
 /*     ~Graph(); */
-    std::vector<int64_t> & getOutNeighbours(int64_t node);
-    void addOutNeighbourUnique(int64_t from, int64_t to);
-    void setOutNeighbours(int64_t node, const std::vector<int64_t> &neighbours);
-    void clearOutNeighbours(int64_t node);
+    NodeList & getOutNeighbours(NodeId node);
+    void addOutNeighbourUnique(NodeId from, NodeId to);
+    void setOutNeighbours(NodeId node, const NodeList &neighbours);
+    void clearOutNeighbours(NodeId node);
     // void save();
-    int64_t getMediod(){
+    OptionalNodeId getMediod() const {
       return m_mediod;
     }
 
-    uint64_t getDegreeThreshold(){
+    uint64_t getDegreeThreshold() const {
       return m_degreeThreshold;
     }
 };

@@ -1,26 +1,15 @@
+#include "test_utils.hpp"
 #include "vamana.hpp"
 #include <cmath>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
+#include <utility>
 #include <unordered_set>
 #include <vector>
 
 namespace {
-
-std::string sanitizePathComponent(std::string value) {
-  for (char &ch : value) {
-    const bool is_alnum = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                          (ch >= '0' && ch <= '9');
-    if (!is_alnum && ch != '_' && ch != '-') {
-      ch = '_';
-    }
-  }
-  return value;
-}
 
 struct AnnFixtureData {
   int64_t n = 6;
@@ -58,28 +47,6 @@ AnnFixtureData makeLargeClusteredFixture() {
   return fixture;
 }
 
-std::filesystem::path makeDatasetFile(const std::string &name,
-                                      const AnnFixtureData &fixture) {
-  const auto fixture_dir =
-      std::filesystem::current_path() / "build" / "test-fixtures";
-  std::filesystem::create_directories(fixture_dir);
-  const auto path = fixture_dir / name;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to create deterministic ANN fixture");
-  }
-
-  out.write(reinterpret_cast<const char *>(&fixture.n), sizeof(fixture.n));
-  out.write(reinterpret_cast<const char *>(&fixture.dimensions),
-            sizeof(fixture.dimensions));
-  for (const auto &row : fixture.rows) {
-    out.write(reinterpret_cast<const char *>(row.data()),
-              static_cast<std::streamsize>(row.size() * sizeof(float)));
-  }
-
-  return path;
-}
-
 float squaredDistance(const std::vector<float> &left,
                       const std::vector<float> &right) {
   float total = 0.0f;
@@ -90,14 +57,14 @@ float squaredDistance(const std::vector<float> &left,
   return total;
 }
 
-std::vector<int64_t> exactNearestIds(const AnnFixtureData &fixture,
-                                 const std::vector<float> &query, uint64_t k) {
-  std::vector<std::pair<float, int64_t>> ranked;
+NodeList exactNearestIds(const AnnFixtureData &fixture,
+                         const std::vector<float> &query, uint64_t k) {
+  std::vector<std::pair<float, NodeId>> ranked;
   ranked.reserve(fixture.rows.size());
   for (const auto &row : fixture.rows) {
     const std::vector<float> payload(row.begin() + 1, row.end());
     ranked.push_back(
-        {squaredDistance(payload, query), static_cast<int64_t>(row.front())});
+        {squaredDistance(payload, query), static_cast<NodeId>(row.front())});
   }
   std::sort(ranked.begin(), ranked.end(),
             [](const auto &left, const auto &right) {
@@ -107,7 +74,7 @@ std::vector<int64_t> exactNearestIds(const AnnFixtureData &fixture,
               return left.first < right.first;
             });
 
-  std::vector<int64_t> result;
+  NodeList result;
   result.reserve(k);
   for (uint64_t i = 0; i < k && i < ranked.size(); ++i) {
     result.push_back(ranked[i].second);
@@ -122,20 +89,13 @@ protected:
   std::filesystem::path datasetPath;
 
   void SetUp() override {
-    const auto *suite_name = ::testing::UnitTest::GetInstance()
-                                 ->current_test_info()
-                                 ->test_suite_name();
-    const auto *test_name =
-        ::testing::UnitTest::GetInstance()->current_test_info()->name();
-    datasetPath = makeDatasetFile(
-        std::string("vamana_") + sanitizePathComponent(suite_name) + "_" +
-            sanitizePathComponent(test_name) + ".bin",
-        fixture);
+    datasetPath = testutils::uniqueFixturePath("vamana", "dataset");
+    testutils::writeDatasetFile(datasetPath, fixture.n, fixture.dimensions,
+                                fixture.rows);
   }
 
   void TearDown() override {
-    std::error_code ec;
-    std::filesystem::remove(datasetPath, ec);
+    testutils::ScopedPathCleanup cleanup(datasetPath);
   }
 
   std::unique_ptr<DataSetType> makeDataSet() {
@@ -153,20 +113,13 @@ protected:
   std::filesystem::path datasetPath;
 
   void SetUp() override {
-    const auto *suite_name = ::testing::UnitTest::GetInstance()
-                                 ->current_test_info()
-                                 ->test_suite_name();
-    const auto *test_name =
-        ::testing::UnitTest::GetInstance()->current_test_info()->name();
-    datasetPath = makeDatasetFile(
-        std::string("vamana_") + sanitizePathComponent(suite_name) + "_" +
-            sanitizePathComponent(test_name) + ".bin",
-        fixture);
+    datasetPath = testutils::uniqueFixturePath("vamana", "dataset");
+    testutils::writeDatasetFile(datasetPath, fixture.n, fixture.dimensions,
+                                fixture.rows);
   }
 
   void TearDown() override {
-    std::error_code ec;
-    std::filesystem::remove(datasetPath, ec);
+    testutils::ScopedPathCleanup cleanup(datasetPath);
   }
 
   std::unique_ptr<DataSetType> makeDataSet() {
@@ -181,13 +134,13 @@ TYPED_TEST(DeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 2);
 
-  for (int64_t node = 0; node < this->fixture.n; ++node) {
-    const std::vector<int64_t> &neighbours = vamana.m_graph.getOutNeighbours(node);
+  for (NodeId node = 0; node < static_cast<NodeId>(this->fixture.n); ++node) {
+    const NodeList &neighbours = vamana.m_graph.getOutNeighbours(node);
     EXPECT_FALSE(neighbours.empty());
     EXPECT_LE(neighbours.size(), 2U);
 
-    std::unordered_set<int64_t> unique;
-    for (int64_t neighbour : neighbours) {
+    std::unordered_set<NodeId> unique;
+    for (NodeId neighbour : neighbours) {
       EXPECT_NE(neighbour, node);
       unique.insert(neighbour);
     }
@@ -197,12 +150,11 @@ TYPED_TEST(DeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
 
 TEST(VamanaIndexConstruction, BuildIndexDoesNotDuplicateExistingBacklinks) {
   const AnnFixtureData fixture;
-  const auto *test_info =
-      ::testing::UnitTest::GetInstance()->current_test_info();
-  const auto datasetPath = makeDatasetFile(
-      std::string("vamana_") + sanitizePathComponent(test_info->test_suite_name()) +
-          "_" + sanitizePathComponent(test_info->name()) + ".bin",
-      fixture);
+  const auto datasetPath =
+      testutils::uniqueFixturePath("vamana_backlinks", "dataset");
+  testutils::ScopedPathCleanup cleanup(datasetPath);
+  testutils::writeDatasetFile(datasetPath, fixture.n, fixture.dimensions,
+                              fixture.rows);
 
   std::srand(0);
   auto dataSet = std::make_unique<FileDataSet>(datasetPath);
@@ -212,7 +164,7 @@ TEST(VamanaIndexConstruction, BuildIndexDoesNotDuplicateExistingBacklinks) {
   // permutation order so the duplicate backlink survives the build.
   vamana.m_graph.setOutNeighbours(0, {2});
   vamana.m_graph.setOutNeighbours(2, {0});
-  for (int64_t node = 1; node < fixture.n; ++node) {
+  for (NodeId node = 1; node < static_cast<NodeId>(fixture.n); ++node) {
     if (node == 2) {
       continue;
     }
@@ -221,12 +173,12 @@ TEST(VamanaIndexConstruction, BuildIndexDoesNotDuplicateExistingBacklinks) {
 
   vamana.buildIndex();
 
-  for (int64_t node = 0; node < fixture.n; ++node) {
+  for (NodeId node = 0; node < static_cast<NodeId>(fixture.n); ++node) {
     const auto &neighbours = vamana.m_graph.getOutNeighbours(node);
-    std::unordered_set<int64_t> uniqueNonSelfNeighbours;
+    std::unordered_set<NodeId> uniqueNonSelfNeighbours;
     size_t nonSelfCount = 0;
 
-    for (int64_t neighbour : neighbours) {
+    for (NodeId neighbour : neighbours) {
       if (neighbour == node) {
         continue;
       }
@@ -248,7 +200,8 @@ TYPED_TEST(DeterministicANNTest, SelfQueriesReturnExactRecord) {
   Vamana vamana(std::move(dataSet), 3);
   vamana.setSeachListSize(this->fixture.n);
 
-  for (int64_t row_index = 0; row_index < static_cast<int64_t>(this->fixture.rows.size());
+  for (NodeId row_index = 0;
+       row_index < static_cast<NodeId>(this->fixture.rows.size());
        ++row_index) {
     const std::vector<float> queryValues(this->fixture.rows[row_index].begin() + 1,
                                          this->fixture.rows[row_index].end());
@@ -272,9 +225,9 @@ TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) 
 
   ASSERT_EQ(results.approximateNN.size(), 3U);
 
-  std::unordered_set<int64_t> unique;
+  std::unordered_set<NodeId> unique;
   float previousDistance = -1.0f;
-  for (int64_t candidate : results.approximateNN) {
+  for (NodeId candidate : results.approximateNN) {
     unique.insert(candidate);
 
     const auto record = vamana.m_dataSet->getRecordViewByIndex(candidate);
@@ -299,7 +252,7 @@ TYPED_TEST(DeterministicANNTest,
   const std::vector<float> queryValues = {11.1f, 10.0f};
   HDVector query(queryValues);
   SearchResults results = vamana.greedySearch(query, 1);
-  const std::vector<int64_t> exact = exactNearestIds(this->fixture, queryValues, 1);
+  const NodeList exact = exactNearestIds(this->fixture, queryValues, 1);
 
   ASSERT_EQ(results.approximateNN.size(), 1U);
   ASSERT_EQ(exact.size(), 1U);
@@ -311,13 +264,13 @@ TYPED_TEST(LargeDeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 5);
 
-  for (int64_t node = 0; node < this->fixture.n; ++node) {
-    const std::vector<int64_t> &neighbours = vamana.m_graph.getOutNeighbours(node);
+  for (NodeId node = 0; node < static_cast<NodeId>(this->fixture.n); ++node) {
+    const NodeList &neighbours = vamana.m_graph.getOutNeighbours(node);
     EXPECT_FALSE(neighbours.empty());
     EXPECT_LE(neighbours.size(), 5U);
 
-    std::unordered_set<int64_t> unique;
-    for (int64_t neighbour : neighbours) {
+    std::unordered_set<NodeId> unique;
+    for (NodeId neighbour : neighbours) {
       EXPECT_NE(neighbour, node);
       unique.insert(neighbour);
     }
@@ -331,7 +284,8 @@ TYPED_TEST(LargeDeterministicANNTest, SelfQueriesReturnExactRecordAcrossGraph) {
   Vamana vamana(std::move(dataSet), 6);
   vamana.setSeachListSize(this->fixture.n);
 
-  for (int64_t row_index = 0; row_index < static_cast<int64_t>(this->fixture.rows.size());
+  for (NodeId row_index = 0;
+       row_index < static_cast<NodeId>(this->fixture.rows.size());
        ++row_index) {
     const std::vector<float> queryValues(this->fixture.rows[row_index].begin() + 1,
                                          this->fixture.rows[row_index].end());
@@ -353,7 +307,7 @@ TYPED_TEST(LargeDeterministicANNTest,
   const std::vector<float> queryValues = {203.25f, 0.5f};
   HDVector query(queryValues);
   SearchResults results = vamana.greedySearch(query, 5);
-  const std::vector<int64_t> exact = exactNearestIds(this->fixture, queryValues, 5);
+  const NodeList exact = exactNearestIds(this->fixture, queryValues, 5);
 
   ASSERT_EQ(results.approximateNN.size(), 5U);
   ASSERT_EQ(exact.size(), 5U);

@@ -1,23 +1,12 @@
 #include "dataset.hpp"
+#include "test_utils.hpp"
 #include <filesystem>
-#include <fstream>
 #include <gtest/gtest.h>
+#include <limits>
 #include <memory>
-#include <string>
 #include <vector>
 
 namespace {
-
-std::string sanitizePathComponent(std::string value) {
-  for (char &ch : value) {
-    const bool is_alnum = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                          (ch >= '0' && ch <= '9');
-    if (!is_alnum && ch != '_' && ch != '-') {
-      ch = '_';
-    }
-  }
-  return value;
-}
 
 struct TestFixtureData {
   int64_t n = 4;
@@ -30,48 +19,19 @@ struct TestFixtureData {
   };
 };
 
-std::filesystem::path makeDatasetFile(const std::string &name,
-                                      const TestFixtureData &fixture) {
-  const auto fixture_dir =
-      std::filesystem::current_path() / "build" / "test-fixtures";
-  std::filesystem::create_directories(fixture_dir);
-  const auto path = fixture_dir / name;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to create temporary dataset fixture");
-  }
-
-  out.write(reinterpret_cast<const char *>(&fixture.n), sizeof(fixture.n));
-  out.write(reinterpret_cast<const char *>(&fixture.dimensions),
-            sizeof(fixture.dimensions));
-  for (const auto &row : fixture.rows) {
-    out.write(reinterpret_cast<const char *>(row.data()),
-              static_cast<std::streamsize>(row.size() * sizeof(float)));
-  }
-
-  return path;
-}
-
 template <typename DataSetType> class DataSetApiTest : public ::testing::Test {
 protected:
   TestFixtureData fixture;
   std::filesystem::path datasetPath;
 
   void SetUp() override {
-    const auto *suite_name = ::testing::UnitTest::GetInstance()
-                                 ->current_test_info()
-                                 ->test_suite_name();
-    const auto *test_name =
-        ::testing::UnitTest::GetInstance()->current_test_info()->name();
-    datasetPath = makeDatasetFile(
-        std::string("sembed_") + sanitizePathComponent(suite_name) + "_" +
-            sanitizePathComponent(test_name) + ".bin",
-        fixture);
+    datasetPath = testutils::uniqueFixturePath("sembed", "dataset");
+    testutils::writeDatasetFile(datasetPath, fixture.n, fixture.dimensions,
+                                fixture.rows);
   }
 
   void TearDown() override {
-    std::error_code ec;
-    std::filesystem::remove(datasetPath, ec);
+    testutils::ScopedPathCleanup cleanup(datasetPath);
   }
 
   std::unique_ptr<DataSetType> makeDataSet() {
@@ -155,7 +115,9 @@ TYPED_TEST(DataSetApiTest, ReturnsContiguousVectorRangesFromIndex) {
 TYPED_TEST(DataSetApiTest, RejectsOutOfBoundsRecordIndex) {
   auto dataSet = this->makeDataSet();
 
-  EXPECT_THROW((void)dataSet->getRecordViewByIndex(-1), std::out_of_range);
+  EXPECT_THROW((void)dataSet->getRecordViewByIndex(
+                   std::numeric_limits<uint64_t>::max()),
+               std::out_of_range);
   EXPECT_THROW((void)dataSet->getRecordViewByIndex(this->fixture.rows.size()),
                std::out_of_range);
 }
@@ -163,11 +125,13 @@ TYPED_TEST(DataSetApiTest, RejectsOutOfBoundsRecordIndex) {
 TYPED_TEST(DataSetApiTest, RejectsOutOfBoundsRecordRanges) {
   auto dataSet = this->makeDataSet();
 
-  EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(-1, 1),
-               std::out_of_range);
   EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(3, 2),
                std::out_of_range);
-  EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(1, -1),
+  EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(
+                   std::numeric_limits<uint64_t>::max(), 1),
+               std::out_of_range);
+  EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(
+                   1, std::numeric_limits<uint64_t>::max()),
                std::out_of_range);
 }
 

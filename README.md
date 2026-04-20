@@ -44,3 +44,4 @@ The GoogleTest runner is also available directly at `build/Test`.
 
 - `build/gvec.bin` is generated automatically from a reduced `glove.6B.50d` subset.
 - `build/w2v.bin` is generated automatically from a reduced GoogleNews word2vec subset.
+- Dataset fixtures use a binary layout of `int64_t record_id` followed by `storedDimentions - 1` floats per record.

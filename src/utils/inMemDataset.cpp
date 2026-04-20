@@ -1,7 +1,8 @@
 #include "dataset.hpp"
+#include <cstddef>
 #include <cstdint>
-#include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -9,6 +10,8 @@
 #include <stdexcept>
 #include <vector>
 #include "utils.hpp"
+
+
 
 InMemoryDataSet::InMemoryDataSet(fs::path path){
 
@@ -38,18 +41,15 @@ InMemoryDataSet::InMemoryDataSet(fs::path path){
 
 }
 void InMemoryDataSet::readDataFromFile(){
-  if (this->storedDimentions != 0 &&
-      this->getN() > std::numeric_limits<size_t>::max() / this->storedDimentions) {
+  if (rowsize(this->dimentions) != 0 &&
+      this->getN() > std::numeric_limits<size_t>::max() / rowsize(this->dimentions)) {
     throw std::runtime_error("dataset is too large to load into memory");
   }
 
-  const size_t total_floats =
-      static_cast<size_t>(this->dimentions * this->getN());
-
-  std::vector<char*> buf(this->getN()*sizeof(int64_t) +total_floats * sizeof(float));
+  std::vector<char> buf(static_cast<size_t>(this->getN()) * rowsize(this->dimentions), 0);
 
   m_file.read(reinterpret_cast<char *>(buf.data()),
-              static_cast<std::streamsize>(this->getN()*sizeof(int64_t) +total_floats * sizeof(float)));
+              static_cast<std::streamsize>(buf.size()));
 
   if (!m_file) {
     throw std::runtime_error("failed to read dataset into memory");
@@ -57,31 +57,32 @@ void InMemoryDataSet::readDataFromFile(){
   m_records.reserve(static_cast<size_t>(this->getN()));
   for (uint64_t i = 0; i < this->getN(); ++i) {
     std::shared_ptr<HDVector> hdv = std::make_shared<HDVector>(dimentions);
-    std::copy_n(buf.data() + i * this->storedDimentions + 1, this->getDimentions(),
-                hdv->getDataPointer());
-    m_records.push_back({static_cast<int64_t>(buf[i * this->storedDimentions]),
-                         hdv});
+    int64_t id = 0;
+    std::memcpy(&id, buf.data() + i * rowsize(this->dimentions),
+                sizeof(int64_t));
+    std::memcpy(hdv->getDataPointer(),
+                buf.data() + i * rowsize(this->dimentions) + sizeof(int64_t),
+                this->getDimentions() * sizeof(float));
+    m_records.push_back({id,hdv});
   }
 }
-RecordView InMemoryDataSet::getRecordViewByIndex(int64_t index){
-  if (index < 0) {
-    throw std::out_of_range("record index is outside dataset bounds");
-  }
+RecordView InMemoryDataSet::getRecordViewByIndex(uint64_t index){
   return this->m_records.at(static_cast<size_t>(index));
 }
 
 std::unique_ptr<std::vector<RecordView>>
-InMemoryDataSet::getNRecordViewsFromIndex(int64_t index, int64_t n) {
-  if (index < 0 || n < 0 ||
-      static_cast<uint64_t>(index) + static_cast<uint64_t>(n) > m_records.size()) {
+InMemoryDataSet::getNRecordViewsFromIndex(uint64_t index, uint64_t n) {
+  const uint64_t limit = m_records.size();
+  if (index > limit || n > limit - index) {
     throw std::out_of_range("record range is outside dataset bounds");
   }
   return std::make_unique<std::vector<RecordView>>(
-      this->m_records.begin() + index, this->m_records.begin() + index + n);
+      this->m_records.begin() + static_cast<std::ptrdiff_t>(index),
+      this->m_records.begin() + static_cast<std::ptrdiff_t>(index + n));
 }
 
 std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
-InMemoryDataSet::getNHDVectorsFromIndex(int64_t index, int64_t n) {
+InMemoryDataSet::getNHDVectorsFromIndex(uint64_t index, uint64_t n) {
   auto records = getNRecordViewsFromIndex(index, n);
   std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> vec =
       std::make_unique<std::vector<std::shared_ptr<HDVector>>>();

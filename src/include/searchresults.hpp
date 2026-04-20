@@ -1,6 +1,5 @@
-#include <cstdint>
-#include <vector>
+#include "node_types.hpp"
 struct SearchResults {
-  std::vector<int64_t> approximateNN;
-  std::vector<int64_t> visited;
+  NodeList approximateNN;
+  NodeList visited;
 };

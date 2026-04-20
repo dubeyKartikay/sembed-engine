@@ -1,104 +1,127 @@
 #include "graph.hpp"
-#include <cstdint>
+#include <algorithm>
 #include <fstream>
 #include <limits>
+#include <random>
 #include <stdexcept>
-#include <vector>
 #include "utils.hpp"
-Graph :: Graph(int64_t numberOfNodes, int64_t R){
-  if (numberOfNodes < 0 || R < 0) {
-    throw std::invalid_argument("graph sizes must be non-negative");
-  }
-  if (static_cast<uint64_t>(numberOfNodes) >
+
+namespace {
+NodeId randomNodeId(NodeId start, NodeId end) {
+  std::random_device device;
+  std::mt19937_64 generator(device());
+  std::uniform_int_distribution<NodeId> distribution(start, end);
+  return distribution(generator);
+}
+}  // namespace
+
+Graph::Graph(NodeId numberOfNodes, uint64_t R) {
+  if (numberOfNodes >
       static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
     throw std::overflow_error("graph node count exceeds addressable memory");
   }
-  if (static_cast<uint64_t>(numberOfNodes) >
-      static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-    throw std::overflow_error("graph node count exceeds int64_t range");
-  }
-
-  const uint64_t nodeCount = static_cast<uint64_t>(numberOfNodes);
-  m_adj_list = std::vector<std::vector<int64_t>>(static_cast<size_t>(nodeCount),
-                                                 std::vector<int64_t>());
+  m_adj_list =
+      std::vector<NodeList>(static_cast<size_t>(numberOfNodes), NodeList());
   m_degreeThreshold = static_cast<uint64_t>(R);
-  for (uint64_t i = 0; i < nodeCount; ++i) {
-    m_adj_list[i] = generateRandomNumbers(m_degreeThreshold, numberOfNodes,i);
+  for (NodeId i = 0; i < numberOfNodes; ++i) {
+    m_adj_list[static_cast<size_t>(i)] =
+        generateRandomNumbers(m_degreeThreshold, numberOfNodes, i);
   }
-  m_mediod = numberOfNodes == 0 ? -1 : getRandomNumber(0, numberOfNodes -1);
+  m_mediod = numberOfNodes == 0 ? std::nullopt
+                                : OptionalNodeId(randomNodeId(0, numberOfNodes - 1));
 }
 
-std::vector<int64_t> & Graph::getOutNeighbours(int64_t node){
-  if (node < 0) {
+NodeList &Graph::getOutNeighbours(NodeId node) {
+  if (node >= static_cast<uint64_t>(m_adj_list.size())) {
     throw std::out_of_range("node index is outside graph bounds");
   }
-  return m_adj_list.at(static_cast<size_t>(node)); 
+  return m_adj_list.at(static_cast<size_t>(node));
 }
 
-void Graph::addOutNeighbourUnique(int64_t from, int64_t to) {
-  if(to == from) return;
-  if(from < 0 || to < 0 ||
-     static_cast<uint64_t>(from) >= m_adj_list.size() ||
-     static_cast<uint64_t>(to) >= m_adj_list.size()) {
+void Graph::addOutNeighbourUnique(NodeId from, NodeId to) {
+  if (to == from) return;
+  if (from >= static_cast<uint64_t>(m_adj_list.size()) ||
+      to >= static_cast<uint64_t>(m_adj_list.size())) {
     throw std::out_of_range("node index is outside graph bounds");
   }
-  std::vector<int64_t> &neighbours = m_adj_list.at(static_cast<size_t>(from));
+  NodeList &neighbours = m_adj_list.at(static_cast<size_t>(from));
   if (std::find(neighbours.begin(), neighbours.end(), to) == neighbours.end()) {
     neighbours.push_back(to);
   }
 }
 
-void Graph::setOutNeighbours(int64_t node, const std::vector<int64_t> &neighbours) {
-  if (node < 0) {
+void Graph::setOutNeighbours(NodeId node, const NodeList &neighbours) {
+  if (node >= static_cast<uint64_t>(m_adj_list.size())) {
     throw std::out_of_range("node index is outside graph bounds");
   }
   auto &target = m_adj_list.at(static_cast<size_t>(node));
   target.clear();
   target.reserve(neighbours.size());
-  for (int64_t neighbour : neighbours) {
+  for (NodeId neighbour : neighbours) {
     if (neighbour == node) {
       continue;
     }
-    if (neighbour < 0 || static_cast<uint64_t>(neighbour) >= m_adj_list.size()) {
+    if (neighbour >= static_cast<uint64_t>(m_adj_list.size())) {
       throw std::out_of_range("node index is outside graph bounds");
     }
     target.push_back(neighbour);
   }
 }
 
-void Graph::clearOutNeighbours(int64_t node) {
-  if (node < 0) {
+void Graph::clearOutNeighbours(NodeId node) {
+  if (node >= static_cast<uint64_t>(m_adj_list.size())) {
     throw std::out_of_range("node index is outside graph bounds");
   }
   m_adj_list.at(static_cast<size_t>(node)).clear();
 }
-// todo- test
-Graph::Graph(std::filesystem::path path){
+
+Graph::Graph(std::filesystem::path path) {
   std::ifstream file(path, std::ios::binary);
   if (!file.is_open()) {
     throw std::runtime_error("could not open the graph file provided");
   }
 
-  int64_t numberOfNodes = 0;
-  int64_t degreeThreshold = 0;
-  int64_t mediod = 0;
-  file.read(reinterpret_cast<char*>(&numberOfNodes), sizeof(numberOfNodes));
-  file.read(reinterpret_cast<char*>(&degreeThreshold), sizeof(degreeThreshold));
-  file.read(reinterpret_cast<char*>(&mediod), sizeof(mediod));
-  if (numberOfNodes < 0 || degreeThreshold < 0) {
-    throw std::runtime_error("graph header contains negative values");
+  uint64_t numberOfNodes = 0;
+  uint64_t degreeThreshold = 0;
+  uint64_t mediod = std::numeric_limits<uint64_t>::max();
+  file.read(reinterpret_cast<char *>(&numberOfNodes), sizeof(numberOfNodes));
+  file.read(reinterpret_cast<char *>(&degreeThreshold), sizeof(degreeThreshold));
+  file.read(reinterpret_cast<char *>(&mediod), sizeof(mediod));
+  if (!file) {
+    throw std::runtime_error("failed to read graph header");
   }
-  if (static_cast<uint64_t>(numberOfNodes) >
+
+  if (numberOfNodes >
       static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
     throw std::overflow_error("graph node count exceeds addressable memory");
   }
-  m_degreeThreshold = static_cast<uint64_t>(degreeThreshold);
-  m_adj_list = std::vector<std::vector<int64_t>>(
-      static_cast<size_t>(numberOfNodes),
-      std::vector<int64_t>(static_cast<size_t>(m_degreeThreshold)));
-  for (int64_t i = 0; i < numberOfNodes; ++i) {
-    file.read(reinterpret_cast<char*>(m_adj_list[i].data()),
-              static_cast<std::streamsize>(sizeof(int64_t) * degreeThreshold));
+  if (degreeThreshold >
+      static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+    throw std::overflow_error("graph degree exceeds addressable memory");
   }
-  m_mediod = mediod;
+
+  m_degreeThreshold = degreeThreshold;
+  m_adj_list = std::vector<NodeList>(
+      static_cast<size_t>(numberOfNodes),
+      NodeList(static_cast<size_t>(m_degreeThreshold)));
+  for (size_t i = 0; i < static_cast<size_t>(numberOfNodes); ++i) {
+    file.read(reinterpret_cast<char *>(m_adj_list[i].data()),
+              static_cast<std::streamsize>(sizeof(NodeId) * degreeThreshold));
+    if (!file) {
+      throw std::runtime_error("failed to read graph adjacency");
+    }
+    for (NodeId neighbour : m_adj_list[i]) {
+      if (neighbour >= numberOfNodes) {
+        throw std::runtime_error("graph adjacency contains invalid node id");
+      }
+    }
+  }
+
+  if (mediod == std::numeric_limits<uint64_t>::max()) {
+    m_mediod = std::nullopt;
+  } else if (mediod < numberOfNodes) {
+    m_mediod = mediod;
+  } else {
+    throw std::runtime_error("graph header contains invalid mediod");
+  }
 }

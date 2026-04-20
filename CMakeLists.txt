@@ -56,8 +56,7 @@ add_custom_command(
 add_custom_target(embedding_fixtures DEPENDS "${GLOVE_FIXTURE}" "${WORD2VEC_FIXTURE}")
 
 add_executable(Test
-    tests/Test_diskUtils.cpp
-    tests/Test_inMemory.cpp
+    tests/Test_binaryLoading.cpp
     tests/Test_hdVectorCore.cpp
     tests/Test_greedySearch.cpp
     tests/Test_dataset_api.cpp
