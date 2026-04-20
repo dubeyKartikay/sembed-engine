@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <algorithm>
 #include <memory>
 #include <vector>
@@ -7,25 +8,25 @@
 class Graph
 {
 private:
-    std::vector<std::vector<int>> m_adj_list;
-    int m_degreeThreshold;
-    int m_mediod;
+    std::vector<std::vector<int64_t>> m_adj_list;
+    uint64_t m_degreeThreshold;
+    int64_t m_mediod;
 public:
     Graph() = default;
     
-    Graph(int numberOfNodes,int R);
+    Graph(int64_t numberOfNodes, int64_t R);
     Graph(std::filesystem::path path);
 /*     ~Graph(); */
-    std::vector<int> & getOutNeighbours(const int& node);
-    void addOutNeighbourUnique(const int &from, const int &to);
-    void setOutNeighbours(const int &node, const std::vector<int> &neighbours);
-    void clearOutNeighbours(const int &node);
+    std::vector<int64_t> & getOutNeighbours(int64_t node);
+    void addOutNeighbourUnique(int64_t from, int64_t to);
+    void setOutNeighbours(int64_t node, const std::vector<int64_t> &neighbours);
+    void clearOutNeighbours(int64_t node);
     // void save();
-    int getMediod(){
+    int64_t getMediod(){
       return m_mediod;
     }
 
-    int getDegreeThreshold(){
+    uint64_t getDegreeThreshold(){
       return m_degreeThreshold;
     }
 };

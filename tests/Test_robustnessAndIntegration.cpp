@@ -64,8 +64,8 @@ struct ScopedFile {
 };
 
 std::filesystem::path
-writeDataset(const std::filesystem::path &path, long long n,
-             long long storedDim,
+writeDataset(const std::filesystem::path &path, int64_t n,
+             int64_t storedDim,
              const std::vector<std::vector<float>> &rows) {
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   if (!out.is_open()) {
@@ -80,20 +80,20 @@ writeDataset(const std::filesystem::path &path, long long n,
   return path;
 }
 
-std::vector<std::vector<float>> makeSmallClusteredRows(long long &outN,
-                                                       long long &outStored) {
+std::vector<std::vector<float>> makeSmallClusteredRows(int64_t &outN,
+                                                       int64_t &outStored) {
   outStored = 3;
   std::vector<std::vector<float>> rows;
-  int id = 0;
-  for (int cluster = 0; cluster < 3; ++cluster) {
-    for (int i = 0; i < 5; ++i) {
+  int64_t id = 0;
+  for (uint64_t cluster = 0; cluster < 3; ++cluster) {
+    for (uint64_t i = 0; i < 5; ++i) {
       rows.push_back({static_cast<float>(id),
-                      static_cast<float>(cluster * 50 + i),
-                      static_cast<float>(cluster * 50 - i)});
+                      static_cast<float>(cluster * 50U + i),
+                      static_cast<float>(cluster * 50U - i)});
       ++id;
     }
   }
-  outN = static_cast<long long>(rows.size());
+  outN = static_cast<int64_t>(rows.size());
   return rows;
 }
 
@@ -120,7 +120,7 @@ TEST(HDVectorRobustness, DistanceDoesNotOverflowOnLargeMagnitudeInputs) {
       << "distance did not match the obvious ||(1e20, 0)|| = 1e20 answer";
 }
 
-// BUG: HDVector(const int&) does not validate the dimension. A negative
+// BUG: HDVector(int64_t) does not validate the dimension. A negative
 // dimension is silently converted to an enormous unsigned size by
 // std::vector, triggering bad_alloc at best and a multi-GB allocation attempt
 // at worst. A defensive constructor should reject negative sizes up front.
@@ -136,7 +136,7 @@ TEST(HDVectorRobustness, NegativeDimensionConstructorIsRejected) {
 // result drifts from the true value far more than float rounding alone would
 // explain.
 TEST(HDVectorRobustness, DistanceMatchesTheExpectedValueForMildlyLargeInputs) {
-  const int dim = 16;
+  const uint64_t dim = 16;
   std::vector<float> left(dim, 1.0e9f);
   std::vector<float> right(dim, 0.0f);
   HDVector a(left);
@@ -263,8 +263,8 @@ TEST(DataSetRobustness, StoredDimensionsEqualToOneIsRejected) {
   const auto path = uniqueFixturePath("stored_dim_one");
   ScopedFile cleanup{path};
 
-  long long n = 2;
-  long long stored = 1;
+  int64_t n = 2;
+  int64_t stored = 1;
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
@@ -300,14 +300,14 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
   ASSERT_EQ(inMem.getN(), onDisk.getN());
   ASSERT_EQ(inMem.getDimentions(), onDisk.getDimentions());
 
-  for (int i = 0; i < inMem.getN(); ++i) {
+  for (uint64_t i = 0; i < inMem.getN(); ++i) {
     auto a = inMem.getRecordViewByIndex(i);
     auto b = onDisk.getRecordViewByIndex(i);
     ASSERT_NE(a.vector, nullptr);
     ASSERT_NE(b.vector, nullptr);
     EXPECT_EQ(a.recordId, b.recordId);
     ASSERT_EQ(a.vector->getDimention(), b.vector->getDimention());
-    for (int d = 0; d < a.vector->getDimention(); ++d) {
+    for (uint64_t d = 0; d < a.vector->getDimention(); ++d) {
       EXPECT_FLOAT_EQ((*a.vector)[d], (*b.vector)[d])
           << "in-memory and on-disk loaders disagree at row " << i
           << " dim " << d;
@@ -325,15 +325,15 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
 TEST(DataSetRobustness, RepeatedFailedConstructionStaysReproducible) {
   const auto path = uniqueFixturePath("bad_header");
   ScopedFile cleanup{path};
-  long long n = 1;
-  long long stored = 0; // invalid -- loader rejects
+  int64_t n = 1;
+  int64_t stored = 0; // invalid -- loader rejects
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
   out.write(reinterpret_cast<const char *>(&stored), sizeof(stored));
   out.close();
 
-  for (int attempt = 0; attempt < 8; ++attempt) {
+  for (uint64_t attempt = 0; attempt < 8; ++attempt) {
     EXPECT_THROW(FileDataSet ds(path), std::exception)
         << "attempt " << attempt
         << ": loader stopped rejecting invalid files after earlier failures, "
@@ -364,15 +364,15 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
   ASSERT_EQ(range->size(), 2U);
   ASSERT_EQ(vectorsOnly->size(), 2U);
 
-  for (int offset = 0; offset < 2; ++offset) {
-    const int absolute = 1 + offset;
+  for (uint64_t offset = 0; offset < 2; ++offset) {
+    const int64_t absolute = static_cast<int64_t>(1 + offset);
     auto single = ds.getRecordViewByIndex(absolute);
     ASSERT_NE(single.vector, nullptr);
     ASSERT_NE(range->at(offset).vector, nullptr);
     ASSERT_NE(vectorsOnly->at(offset), nullptr);
 
     EXPECT_EQ(single.recordId, range->at(offset).recordId);
-    for (int d = 0; d < single.vector->getDimention(); ++d) {
+    for (uint64_t d = 0; d < single.vector->getDimention(); ++d) {
       EXPECT_FLOAT_EQ((*single.vector)[d], (*range->at(offset).vector)[d]);
       EXPECT_FLOAT_EQ((*single.vector)[d], (*vectorsOnly->at(offset))[d]);
     }
@@ -390,8 +390,8 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
 TEST(VamanaRobustness, ConstructorWithEmptyDatasetDoesNotCrash) {
   const auto path = uniqueFixturePath("empty_dataset");
   ScopedFile cleanup{path};
-  long long n = 0;
-  long long stored = 3;
+  int64_t n = 0;
+  int64_t stored = 3;
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
@@ -418,8 +418,8 @@ TEST(VamanaRobustness, BuildIndexDoesNotSpamStdout) {
   const auto path = uniqueFixturePath("silent_build");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -447,8 +447,8 @@ TEST(VamanaRobustness, GreedySearchWithNegativeKReturnsEmptyOrThrows) {
   const auto path = uniqueFixturePath("negative_k");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -480,8 +480,8 @@ TEST(VamanaRobustness, GreedySearchWithZeroSearchListHonoursRequestedK) {
   const auto path = uniqueFixturePath("zero_L_honours_k");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -508,8 +508,8 @@ TEST(VamanaRobustness, GreedySearchRejectsMismatchedQueryDimensionImmediately) {
   const auto path = uniqueFixturePath("dim_mismatch");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -532,27 +532,27 @@ TEST(VamanaRobustness, GreedySearchResultsAreWithinDatasetBounds) {
   const auto path = uniqueFixturePath("in_bounds");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
-  const int datasetSize = static_cast<int>(n);
+  const uint64_t datasetSize = static_cast<uint64_t>(n);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(datasetSize);
+  v.setSeachListSize(static_cast<int64_t>(datasetSize));
 
   HDVector q(std::vector<float>{12.5f, 7.5f});
   SearchResults r = v.greedySearch(q, 5);
 
-  for (int idx : r.approximateNN) {
+  for (int64_t idx : r.approximateNN) {
     EXPECT_GE(idx, 0);
-    EXPECT_LT(idx, datasetSize);
+    EXPECT_LT(static_cast<uint64_t>(idx), datasetSize);
   }
-  for (int idx : r.visited) {
+  for (int64_t idx : r.visited) {
     EXPECT_GE(idx, 0);
-    EXPECT_LT(idx, datasetSize);
+    EXPECT_LT(static_cast<uint64_t>(idx), datasetSize);
   }
 }
 
@@ -597,16 +597,16 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   const auto path = uniqueFixturePath("leaky_rand");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
-  auto neighboursOf = [&path](int node) {
+  auto neighboursOf = [&path](int64_t node) {
     std::srand(0);
     auto ds = std::make_unique<InMemoryDataSet>(path);
     Vamana v(std::move(ds), 3);
-    std::vector<int> neighbours = v.m_graph.getOutNeighbours(node);
+    std::vector<int64_t> neighbours = v.m_graph.getOutNeighbours(node);
     std::sort(neighbours.begin(), neighbours.end());
     return neighbours;
   };
@@ -617,17 +617,17 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   // library that owns its own randomness, this must still yield identical
   // results.  Today the engine leaks through std::rand, so the two calls
   // diverge.
-  auto neighboursOfNoReset = [&path](int node) {
+  auto neighboursOfNoReset = [&path](int64_t node) {
     auto ds = std::make_unique<InMemoryDataSet>(path);
     Vamana v(std::move(ds), 3);
-    std::vector<int> neighbours = v.m_graph.getOutNeighbours(node);
+    std::vector<int64_t> neighbours = v.m_graph.getOutNeighbours(node);
     std::sort(neighbours.begin(), neighbours.end());
     return neighbours;
   };
 
   // First, warm up global rand so the no-reset call is visibly downstream of
   // an unrelated consumer.
-  for (int i = 0; i < 25; ++i) {
+  for (uint64_t i = 0; i < 25; ++i) {
     (void)std::rand();
   }
   const auto withoutReset = neighboursOfNoReset(0);
@@ -659,12 +659,12 @@ TEST(VamanaRobustness, InsertIntoSetInsertsEveryMissingElement) {
   Vamana v(std::move(ds), 2);
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
-  std::vector<int> to;
+  std::vector<int64_t> to;
   v.insertIntoSet({2, 4}, to, q);
   v.insertIntoSet({1, 3, 5}, to, q);
 
-  std::unordered_set<int> unique(to.begin(), to.end());
-  const std::unordered_set<int> expected = {1, 2, 3, 4, 5};
+  std::unordered_set<int64_t> unique(to.begin(), to.end());
+  const std::unordered_set<int64_t> expected = {1, 2, 3, 4, 5};
   EXPECT_EQ(unique, expected)
       << "insertIntoSet dropped at least one element; got "
       << ::testing::PrintToString(to);
@@ -689,7 +689,7 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
 
   HDVector q(std::vector<float>{0.0f, 0.0f});
 
-  std::vector<int> to;
+  std::vector<int64_t> to;
   v.insertIntoSet({5, 3, 1, 4, 2, 0}, to, q);
 
   for (size_t i = 1; i < to.size(); ++i) {
@@ -733,11 +733,11 @@ TEST(UtilsRobustness, GenerateRandomNumbersWithZeroNDoesNotInvokeUB) {
 // at worst throw -- but never exceed n unique outputs.
 TEST(UtilsRobustness, GenerateRandomNumbersCannotReturnMoreThanNUniqueValues) {
   std::srand(42);
-  const int n = 4;
-  const int k = 10;
+  const uint64_t n = 4;
+  const uint64_t k = 10;
 
   const auto result = generateRandomNumbers(k, n, /*blackList=*/-1);
-  std::unordered_set<int> unique(result.begin(), result.end());
+  std::unordered_set<int64_t> unique(result.begin(), result.end());
 
   EXPECT_LE(unique.size(), static_cast<size_t>(n));
   EXPECT_LE(result.size(), static_cast<size_t>(n))
@@ -777,8 +777,8 @@ TEST(UtilsRobustness, IsValidPathRejectsEmptyString) {
 // returns the same underlying sample. A correct RNG should carry state
 // across invocations.
 TEST(UtilsRobustness, GetRandomNumberProducesIndependentSamplesAcrossRanges) {
-  std::set<int> observed;
-  for (int width = 2; width <= 8; ++width) {
+  std::set<int64_t> observed;
+  for (int64_t width = 2; width <= 8; ++width) {
     observed.insert(getRandomNumber(0, width));
   }
   EXPECT_GT(observed.size(), 3U)
@@ -816,9 +816,9 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
 
   // 30 points in three well-separated clusters.
   std::vector<std::vector<float>> rows;
-  int id = 0;
-  for (int cluster = 0; cluster < 3; ++cluster) {
-    for (int i = 0; i < 10; ++i) {
+  int64_t id = 0;
+  for (uint64_t cluster = 0; cluster < 3; ++cluster) {
+    for (uint64_t i = 0; i < 10; ++i) {
       const float base = static_cast<float>(cluster * 100);
       rows.push_back({static_cast<float>(id), base + static_cast<float>(i),
                       base - static_cast<float>(i) * 0.25f});
@@ -830,7 +830,7 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 6);
-  v.setSeachListSize(static_cast<int>(rows.size()));
+  v.setSeachListSize(static_cast<int64_t>(rows.size()));
 
   const std::vector<float> query = {202.5f, -0.625f};
   HDVector q(query);
@@ -845,11 +845,11 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
     return total;
   };
 
-  std::vector<std::pair<float, int>> ranked;
+  std::vector<std::pair<float, int64_t>> ranked;
   ranked.reserve(rows.size());
   for (size_t i = 0; i < rows.size(); ++i) {
     const std::vector<float> payload(rows[i].begin() + 1, rows[i].end());
-    ranked.push_back({squared(payload, query), static_cast<int>(i)});
+    ranked.push_back({squared(payload, query), static_cast<int64_t>(i)});
   }
   std::sort(ranked.begin(), ranked.end(),
             [](const auto &l, const auto &r) {
@@ -862,9 +862,9 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
   SearchResults approx = v.greedySearch(q, 5);
   ASSERT_EQ(approx.approximateNN.size(), 5U);
 
-  std::vector<int> expected;
+  std::vector<int64_t> expected;
   expected.reserve(5);
-  for (int i = 0; i < 5; ++i) {
+  for (uint64_t i = 0; i < 5; ++i) {
     expected.push_back(ranked[i].second);
   }
   EXPECT_EQ(approx.approximateNN, expected)
@@ -879,7 +879,7 @@ TEST(IntegrationRegression, SelfRecallIsPerfectAtLEqualsN) {
   ScopedFile cleanup{path};
 
   std::vector<std::vector<float>> rows;
-  for (int i = 0; i < 25; ++i) {
+  for (uint64_t i = 0; i < 25; ++i) {
     const float x = static_cast<float>(i);
     rows.push_back({static_cast<float>(i), x, x * 0.5f});
   }
@@ -888,19 +888,19 @@ TEST(IntegrationRegression, SelfRecallIsPerfectAtLEqualsN) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 5);
-  v.setSeachListSize(static_cast<int>(rows.size()));
+  v.setSeachListSize(static_cast<int64_t>(rows.size()));
 
-  int misses = 0;
+  uint64_t misses = 0;
   for (size_t i = 0; i < rows.size(); ++i) {
     const std::vector<float> payload(rows[i].begin() + 1, rows[i].end());
     HDVector q(payload);
     SearchResults r = v.greedySearch(q, 1);
     if (r.approximateNN.size() != 1U ||
-        r.approximateNN.front() != static_cast<int>(i)) {
+        r.approximateNN.front() != static_cast<int64_t>(i)) {
       ++misses;
     }
   }
-  EXPECT_EQ(misses, 0)
+  EXPECT_EQ(misses, 0U)
       << "self-query failed to return the original point for " << misses
       << " records";
 }

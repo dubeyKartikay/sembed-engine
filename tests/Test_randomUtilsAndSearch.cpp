@@ -48,7 +48,7 @@ std::filesystem::path uniqueFixturePath(const std::string &tag) {
 }
 
 std::filesystem::path writeDatasetFile(
-    const std::filesystem::path &path, long long n, long long storedDimensions,
+    const std::filesystem::path &path, int64_t n, int64_t storedDimensions,
     const std::vector<std::vector<float>> &rows) {
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   if (!out.is_open()) {
@@ -76,8 +76,8 @@ struct ScopedFile {
 } // namespace
 
 TEST(RandomUtilsRegression, GetRandomNumberVariesAcrossCalls) {
-  std::set<int> observed;
-  for (int trial = 0; trial < 50; ++trial) {
+  std::set<int64_t> observed;
+  for (int64_t trial = 0; trial < 50; ++trial) {
     observed.insert(getRandomNumber(0, 1000));
   }
 
@@ -89,15 +89,15 @@ TEST(RandomUtilsRegression, GetRandomNumberVariesAcrossCalls) {
 TEST(RandomUtilsRegression, GenerateRandomNumbersReturnsRequestedUniqueCount) {
   std::srand(0);
 
-  constexpr int n = 8;
-  constexpr int k = 7;
+  constexpr uint64_t n = 8;
+  constexpr uint64_t k = 7;
   const auto result = generateRandomNumbers(k, n, /*blackList=*/0);
 
-  ASSERT_EQ(static_cast<int>(result.size()), k)
+  ASSERT_EQ(static_cast<uint64_t>(result.size()), k)
       << "collision handling dropped values instead of retrying until k "
          "unique neighbours were produced";
 
-  const std::unordered_set<int> unique(result.begin(), result.end());
+  const std::unordered_set<int64_t> unique(result.begin(), result.end());
   EXPECT_EQ(unique.size(), result.size());
   EXPECT_EQ(unique.count(0), 0U);
 }
@@ -107,7 +107,7 @@ TEST(VamanaSearchRegression, ExactRecallWhenSearchListEqualsDatasetSize) {
   ScopedFile cleanup{path};
 
   std::vector<std::vector<float>> rows;
-  for (int i = 0; i < 15; ++i) {
+  for (int64_t i = 0; i < 15; ++i) {
     rows.push_back({static_cast<float>(i),
                     static_cast<float>(i) * 2.0f + 0.5f,
                     static_cast<float>(i) * -0.3f});

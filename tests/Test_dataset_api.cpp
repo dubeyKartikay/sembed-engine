@@ -20,8 +20,8 @@ std::string sanitizePathComponent(std::string value) {
 }
 
 struct TestFixtureData {
-  long long n = 4;
-  long long dimensions = 3;
+  int64_t n = 4;
+  int64_t dimensions = 3;
   std::vector<std::vector<float>> rows = {
       {100.0f, 1.0f, 2.0f},
       {110.0f, 11.0f, 12.0f},
@@ -92,15 +92,17 @@ TYPED_TEST(DataSetApiTest, ReportsDatasetShape) {
 TYPED_TEST(DataSetApiTest, ReturnsRecordViewsByIndex) {
   auto dataSet = this->makeDataSet();
 
-  for (int row_index = 0; row_index < static_cast<int>(this->fixture.rows.size());
+  for (int64_t row_index = 0;
+       row_index < static_cast<int64_t>(this->fixture.rows.size());
        ++row_index) {
     auto record = dataSet->getRecordViewByIndex(row_index);
     ASSERT_NE(record.vector, nullptr);
     EXPECT_EQ(record.recordId,
-              static_cast<long long>(this->fixture.rows[row_index][0]));
+              static_cast<int64_t>(this->fixture.rows[row_index][0]));
     EXPECT_EQ(record.vector->getDimention(), this->fixture.dimensions - 1);
 
-    for (int dim = 0; dim < record.vector->getDimention(); ++dim) {
+    for (int64_t dim = 0;
+         dim < static_cast<int64_t>(record.vector->getDimention()); ++dim) {
       EXPECT_FLOAT_EQ((*record.vector)[dim],
                       this->fixture.rows[row_index][dim + 1]);
     }
@@ -115,13 +117,15 @@ TYPED_TEST(DataSetApiTest, ReturnsContiguousRecordRangesFromIndex) {
   ASSERT_NE(records, nullptr);
   ASSERT_EQ(records->size(), 2U);
 
-  for (int offset = 0; offset < static_cast<int>(records->size()); ++offset) {
+  for (int64_t offset = 0;
+       offset < static_cast<int64_t>(records->size()); ++offset) {
     const RecordView &record = records->at(offset);
     ASSERT_NE(record.vector, nullptr);
     EXPECT_EQ(record.recordId,
-              static_cast<long long>(this->fixture.rows[offset + 1][0]));
+              static_cast<int64_t>(this->fixture.rows[offset + 1][0]));
     ASSERT_EQ(record.vector->getDimention(), this->fixture.dimensions - 1);
-    for (int dim = 0; dim < record.vector->getDimention(); ++dim) {
+    for (int64_t dim = 0;
+         dim < static_cast<int64_t>(record.vector->getDimention()); ++dim) {
       EXPECT_FLOAT_EQ((*record.vector)[dim],
                       this->fixture.rows[offset + 1][dim + 1]);
     }
@@ -136,9 +140,12 @@ TYPED_TEST(DataSetApiTest, ReturnsContiguousVectorRangesFromIndex) {
   ASSERT_NE(vectors, nullptr);
   ASSERT_EQ(vectors->size(), 2U);
 
-  for (int offset = 0; offset < static_cast<int>(vectors->size()); ++offset) {
+  for (int64_t offset = 0;
+       offset < static_cast<int64_t>(vectors->size()); ++offset) {
     ASSERT_NE(vectors->at(offset), nullptr);
-    for (int dim = 0; dim < vectors->at(offset)->getDimention(); ++dim) {
+    for (int64_t dim = 0;
+         dim < static_cast<int64_t>(vectors->at(offset)->getDimention());
+         ++dim) {
       EXPECT_FLOAT_EQ((*vectors->at(offset))[dim],
                       this->fixture.rows[offset + 1][dim + 1]);
     }

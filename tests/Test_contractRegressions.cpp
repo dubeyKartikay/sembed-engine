@@ -61,7 +61,7 @@ struct ScopedFile {
 };
 
 std::filesystem::path writeDataset(const std::filesystem::path &path,
-                                   long long n, long long storedDim,
+                                   int64_t n, int64_t storedDim,
                                    const std::vector<std::vector<float>> &rows) {
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   if (!out.is_open()) {
@@ -76,20 +76,20 @@ std::filesystem::path writeDataset(const std::filesystem::path &path,
   return path;
 }
 
-std::vector<std::vector<float>> makeClusteredRows(long long &outN,
-                                                  long long &outStored) {
+std::vector<std::vector<float>> makeClusteredRows(int64_t &outN,
+                                                  int64_t &outStored) {
   outStored = 3;
   std::vector<std::vector<float>> rows;
-  int id = 0;
-  for (int cluster = 0; cluster < 3; ++cluster) {
-    for (int i = 0; i < 5; ++i) {
+  int64_t id = 0;
+  for (uint64_t cluster = 0; cluster < 3; ++cluster) {
+    for (uint64_t i = 0; i < 5; ++i) {
       rows.push_back({static_cast<float>(id),
-                      static_cast<float>(cluster * 50 + i),
-                      static_cast<float>(cluster * 50 - i)});
+                      static_cast<float>(cluster * 50U + i),
+                      static_cast<float>(cluster * 50U - i)});
       ++id;
     }
   }
-  outN = static_cast<long long>(rows.size());
+  outN = static_cast<int64_t>(rows.size());
   return rows;
 }
 
@@ -109,7 +109,8 @@ TEST(GraphContractRegression, SetOutNeighboursRespectsDegreeThreshold) {
   graph.setOutNeighbours(0, {1, 2, 3, 4, 5});
   const auto &neighbours = graph.getOutNeighbours(0);
 
-  EXPECT_LE(static_cast<int>(neighbours.size()), graph.getDegreeThreshold())
+  EXPECT_LE(static_cast<uint64_t>(neighbours.size()),
+            graph.getDegreeThreshold())
       << "setOutNeighbours stored " << neighbours.size()
       << " neighbours on a graph whose degree threshold is "
       << graph.getDegreeThreshold();
@@ -217,7 +218,7 @@ TEST(UtilsContractRegression, GetPermutationIsNotDeterministicAcrossCalls) {
 }
 
 // BUG: getPermutation with n <= 0 is not defined. n == 0 happens to work, but
-// n < 0 flows into std::vector<int>(n, 0), which converts to size_t and tries
+// n < 0 flows into std::vector<int64_t>(n, 0), which converts to size_t and tries
 // to allocate enormous storage.  A stable API should reject it up front.
 TEST(UtilsContractRegression, GetPermutationWithNegativeNReturnsEmpty) {
   EXPECT_EXIT(
@@ -249,16 +250,16 @@ TEST(UtilsContractRegression, IsValidPathReturnsFalseForDirectoriesAndEmptyInput
 // HDVector additional bugs
 // ============================================================================
 
-// BUG: HDVector's `dimentions` field is declared `int`, but the value is
-// assigned from `vec.size()` (size_t) or `const int &`. The `int` storage
-// type silently narrows any caller-provided dimension beyond INT_MAX.
+// BUG: HDVector's `dimentions` field used 32-bit signed storage, but the
+// value is assigned from `vec.size()` (size_t) or `const int64_t &`. That
+// storage silently narrows any caller-provided dimension beyond INT_MAX.
 // Expose the type mismatch at the API boundary.
 TEST(HDVectorContractRegression, DimensionAccessorExposesLongLongStorage) {
   HDVector v(std::vector<float>{1.0f, 2.0f, 3.0f});
   using returned_type = std::remove_cvref_t<decltype(v.getDimention())>;
-  EXPECT_TRUE((std::is_same_v<returned_type, std::size_t>) ||
-              (std::is_same_v<returned_type, long long>))
-      << "HDVector::getDimention returns `int`, which silently narrows any "
+  EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>) ||
+              (std::is_same_v<returned_type, std::size_t>))
+      << "HDVector::getDimention returns a 32-bit signed value, which silently narrows any "
          "dimension larger than INT_MAX";
 }
 
@@ -293,7 +294,8 @@ TEST(HDVectorContractRegression, DistanceObeysTriangleInequality) {
 // DataSet accessor narrowing
 // ============================================================================
 
-// BUG: DataSet stores `long long int n;` but exposes `const int getN() const`,
+// BUG: DataSet stores a 64-bit record count but used to expose a 32-bit
+// signed `getN()`,
 // silently narrowing counts above INT_MAX. The accessor's declared return
 // type should match the storage type so callers see the full range.
 TEST(DataSetContractRegression, GetNReturnTypeMatchesLongLongStorage) {
@@ -303,9 +305,9 @@ TEST(DataSetContractRegression, GetNReturnTypeMatchesLongLongStorage) {
   InMemoryDataSet ds(path);
 
   using returned_type = std::remove_cvref_t<decltype(ds.getN())>;
-  EXPECT_TRUE((std::is_same_v<returned_type, long long>))
-      << "InMemoryDataSet::getN() returns `int`, silently narrowing the "
-         "`long long int n` member";
+  EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>))
+      << "InMemoryDataSet::getN() returns a 32-bit signed value, silently narrowing the "
+         "dataset record-count member";
 }
 
 // BUG: same narrowing issue as above, but for getDimentions.
@@ -316,9 +318,9 @@ TEST(DataSetContractRegression, GetDimensionsReturnTypeMatchesLongLongStorage) {
   InMemoryDataSet ds(path);
 
   using returned_type = std::remove_cvref_t<decltype(ds.getDimentions())>;
-  EXPECT_TRUE((std::is_same_v<returned_type, long long>))
-      << "InMemoryDataSet::getDimentions() returns `int`, silently narrowing "
-         "the `long long int dimentions` member";
+  EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>))
+      << "InMemoryDataSet::getDimentions() returns a 32-bit signed value, silently narrowing "
+         "the dataset dimension member";
 }
 
 // BUG: header validation allows n < 0 today. A correct loader must reject a
@@ -330,8 +332,8 @@ TEST(DataSetContractRegression, NegativeRecordCountHeaderIsRejected) {
 
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
-  long long n = -5;
-  long long stored = 3;
+  int64_t n = -5;
+  int64_t stored = 3;
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
   out.write(reinterpret_cast<const char *>(&stored), sizeof(stored));
   out.close();
@@ -341,7 +343,7 @@ TEST(DataSetContractRegression, NegativeRecordCountHeaderIsRejected) {
 }
 
 // BUG: getRecordViewByIndex on a negative index should throw out_of_range.
-// std::vector::at on a negative int converts to a huge size_t and does
+// std::vector::at on a negative signed index converts to a huge size_t and does
 // throw, but the cast may be implementation-defined for the exact behaviour;
 // our contract should be deterministic.
 TEST(DataSetContractRegression, NegativeIndexGetRecordViewThrowsOutOfRange) {
@@ -364,7 +366,7 @@ TEST(VamanaContractRegression, GraphWithExcessiveDegreeHasAllAvailableNeighbours
   std::srand(0);
   Graph graph(5, 10);
 
-  for (int node = 0; node < 5; ++node) {
+  for (int64_t node = 0; node < 5; ++node) {
     const auto &neighbours = graph.getOutNeighbours(node);
     EXPECT_EQ(neighbours.size(), 4U)
         << "node " << node << " had only " << neighbours.size()
@@ -382,8 +384,8 @@ TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
   const auto path = uniqueFixturePath("buildindex_idempotent");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -392,10 +394,11 @@ TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
   Vamana v(std::move(ds), 3);
 
   // Snapshot adjacency after the first build.
-  std::vector<std::vector<int>> firstBuild(static_cast<size_t>(n));
-  for (int i = 0; i < static_cast<int>(n); ++i) {
-    firstBuild[i] = v.m_graph.getOutNeighbours(i);
-    std::sort(firstBuild[i].begin(), firstBuild[i].end());
+  std::vector<std::vector<int64_t>> firstBuild(static_cast<size_t>(n));
+  for (int64_t i = 0; i < n; ++i) {
+    auto &adjacency = firstBuild[static_cast<size_t>(i)];
+    adjacency = v.m_graph.getOutNeighbours(i);
+    std::sort(adjacency.begin(), adjacency.end());
   }
 
   // Redirect cout so the "Making N" spam does not pollute the test log.
@@ -405,10 +408,10 @@ TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
   std::cout.rdbuf(prev);
 
   // Compare to the second build.
-  for (int i = 0; i < static_cast<int>(n); ++i) {
+  for (int64_t i = 0; i < n; ++i) {
     auto after = v.m_graph.getOutNeighbours(i);
     std::sort(after.begin(), after.end());
-    EXPECT_EQ(firstBuild[i], after)
+    EXPECT_EQ(firstBuild[static_cast<size_t>(i)], after)
         << "buildIndex is not idempotent for node " << i;
   }
 }
@@ -421,8 +424,8 @@ TEST(VamanaContractRegression, SetDistanceThresholdIsObservable) {
   const auto path = uniqueFixturePath("alpha_getter");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -448,8 +451,8 @@ TEST(VamanaContractRegression, GreedySearchDoesNotReturnInternalMarkers) {
   const auto path = uniqueFixturePath("no_markers");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -480,8 +483,8 @@ TEST(VamanaContractRegression, GreedySearchIsDeterministicForIdenticalQueries) {
   const auto path = uniqueFixturePath("deterministic_search");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -505,8 +508,8 @@ TEST(VamanaContractRegression, PruneOnEmptyCandidateSetLeavesNodeStranded) {
   const auto path = uniqueFixturePath("prune_empty");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -514,7 +517,7 @@ TEST(VamanaContractRegression, PruneOnEmptyCandidateSetLeavesNodeStranded) {
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
 
-  std::vector<int> candidates; // intentionally empty
+  std::vector<int64_t> candidates; // intentionally empty
   v.prune(0, candidates);
   const auto &after = v.m_graph.getOutNeighbours(0);
 
@@ -553,8 +556,8 @@ TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   const auto path = uniqueFixturePath("dim_mismatch_insert");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeClusteredRows(n, stored);
   writeDataset(path, n, stored, rows);
 
@@ -563,6 +566,6 @@ TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   Vamana v(std::move(ds), 3);
 
   HDVector bad(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
-  std::vector<int> to;
+  std::vector<int64_t> to;
   EXPECT_THROW(v.insertIntoSet({1, 2}, to, bad), std::invalid_argument);
 }

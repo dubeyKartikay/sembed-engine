@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <iostream>
 #include <random>
 #include <algorithm>
@@ -6,7 +7,8 @@
 #define UTILS
 bool isValidPath(const std::string& path);
 bool isValidFile(const std::string& path);
-std::vector<int> generateRandomNumbers(const int &k,const int &n, int blackList = -1);
-std::vector<int> getPermutation(int n);
-int getRandomNumber(int start, int end);
+std::vector<int64_t> generateRandomNumbers(uint64_t k, uint64_t n,
+                                           int64_t blackList = -1);
+std::vector<int64_t> getPermutation(uint64_t n);
+int64_t getRandomNumber(int64_t start, int64_t end);
 #endif

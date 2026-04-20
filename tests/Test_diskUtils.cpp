@@ -5,8 +5,8 @@
 #include <vector>
 
 namespace {
-constexpr int kFixtureRows = 256;
-constexpr int kFixtureDimensions = 50;
+constexpr uint64_t kFixtureRows = 256;
+constexpr uint64_t kFixtureDimensions = 50;
 }
 
 TEST(BinaryLoading, LoadsGloveBinaryOnDisk) {
@@ -32,7 +32,7 @@ TEST(BinaryLoading, ReadsFirstVectorFromGloveBinaryOnDisk) {
   RecordView record = dataset.getRecordViewByIndex(0);
   ASSERT_EQ(record.recordId, 0);
   std::shared_ptr<HDVector> hdvec = record.vector;
-  for (int i = 0; i < dataset.getDimentions(); i++) {
+  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimentions()); ++i) {
     EXPECT_EQ((*hdvec)[i], data->at(i));
   }
   data->clear();
@@ -96,7 +96,7 @@ TEST(BinaryLoading, ReadsLastVectorFromGloveBinaryOnDisk) {
   RecordView record = dataset.getRecordViewByIndex(dataset.getN() - 1);
   ASSERT_EQ(record.recordId, dataset.getN() - 1);
   std::shared_ptr<HDVector> hdvec2 = record.vector;
-  for (int i = 0; i < dataset.getDimentions(); i++) {
+  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimentions()); ++i) {
     EXPECT_EQ((*hdvec2)[i], data2->at(i));
   }
 }
