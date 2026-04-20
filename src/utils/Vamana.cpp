@@ -52,8 +52,6 @@ struct customLess {
   };
 void Vamana::insertIntoSet(const std::vector<int> &from, std::vector<int> &to,
                            HDVector &comparison_vec) {
-  
-
   for (const int outNode : from) {
 
     auto pos = std::lower_bound(to.begin(), to.end(), outNode,
@@ -152,7 +150,6 @@ void Vamana::prune(int node, std::vector<int> &candidateSet) {
 void Vamana::buildIndex() {
   std::vector<int> sigma = getPermutation(m_dataSet->getN());
   for (int &node : sigma) {
-    std::cout << "Making " << node << std::endl;
     SearchResults greedySearchResult =
         greedySearch(*m_dataSet->getRecordViewByIndex(node).vector, 1);
     prune(node, greedySearchResult.visited);

@@ -3,14 +3,14 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
-TEST(LoadingBinary, LoadingGLOVEBinaryOnDisk) {
+TEST(BinaryLoading, LoadsGloveBinaryOnDisk) {
   std::filesystem::path path("../build/gvec.bin");
   FileDataSet dataset(path);
   ASSERT_EQ(dataset.getN(), 400000);
   ASSERT_EQ(dataset.getDimentions(), 50);
 }
 
-TEST(LoadingBinary, CheckingFirstElementInTheLoadedGLOVEOnDisk) {
+TEST(BinaryLoading, ReadsFirstVectorFromGloveBinaryOnDisk) {
   std::filesystem::path path("../build/gvec.bin");
   FileDataSet dataset(path);
   std::vector<float> *data = new std::vector<float>(
@@ -32,7 +32,7 @@ TEST(LoadingBinary, CheckingFirstElementInTheLoadedGLOVEOnDisk) {
   data->clear();
   delete data;
 }
-TEST(LoadingBinary, CheckingLastElementInTheLoadedGLOVEOnDisk) {
+TEST(BinaryLoading, ReadsLastVectorFromGloveBinaryOnDisk) {
   std::filesystem::path path("../build/gvec.bin");
   FileDataSet dataset(path);
   std::vector<float> *data2 =

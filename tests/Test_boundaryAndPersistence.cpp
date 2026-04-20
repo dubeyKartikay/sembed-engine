@@ -1,3 +1,6 @@
+// Boundary-condition and persistence regression tests for dataset and graph
+// loading, mutation, and serialization behavior.
+
 #include "HDVector.hpp"
 #include "dataset.hpp"
 #include "graph.hpp"
@@ -109,7 +112,7 @@ std::vector<std::vector<int>> makeCircularAdjacency(int nodeCount,
 }
 
 template <typename DataSetType>
-class DataSetEdgeCaseTest : public ::testing::Test {
+class DataSetBoundaryTest : public ::testing::Test {
 protected:
   DatasetFixtureData fixture;
   std::filesystem::path datasetPath;
@@ -121,7 +124,7 @@ protected:
     const auto *test_name =
         ::testing::UnitTest::GetInstance()->current_test_info()->name();
     datasetPath = makeDatasetFile(
-        std::string("edge_") + sanitizePathComponent(suite_name) + "_" +
+        std::string("boundary_") + sanitizePathComponent(suite_name) + "_" +
             sanitizePathComponent(test_name) + ".bin",
         fixture);
   }
@@ -137,9 +140,9 @@ protected:
 };
 
 using DataSetImplementations = ::testing::Types<FileDataSet, InMemoryDataSet>;
-TYPED_TEST_SUITE(DataSetEdgeCaseTest, DataSetImplementations);
+TYPED_TEST_SUITE(DataSetBoundaryTest, DataSetImplementations);
 
-TYPED_TEST(DataSetEdgeCaseTest, AllowsEmptyRangesAtDatasetBoundary) {
+TYPED_TEST(DataSetBoundaryTest, AllowsEmptyRangesAtDatasetBoundary) {
   auto dataSet = this->makeDataSet();
 
   auto records = dataSet->getNRecordViewsFromIndex(this->fixture.rows.size(), 0);
@@ -151,7 +154,7 @@ TYPED_TEST(DataSetEdgeCaseTest, AllowsEmptyRangesAtDatasetBoundary) {
   EXPECT_TRUE(vectors->empty());
 }
 
-TYPED_TEST(DataSetEdgeCaseTest, RejectsMissingDatasetPath) {
+TYPED_TEST(DataSetBoundaryTest, RejectsMissingDatasetPath) {
   const auto missingPath =
       std::filesystem::current_path() / "build" / "test-fixtures" /
       ("missing_" + sanitizePathComponent(
@@ -169,7 +172,7 @@ TYPED_TEST(DataSetEdgeCaseTest, RejectsMissingDatasetPath) {
       std::invalid_argument);
 }
 
-TEST(HDVectorEdgeCases, DistanceRejectsMismatchedDimensions) {
+TEST(HDVectorBoundary, DistanceRejectsMismatchedDimensions) {
   HDVector left(std::vector<float>{1.0f, 2.0f});
   HDVector right(std::vector<float>{1.0f, 2.0f, 3.0f});
 

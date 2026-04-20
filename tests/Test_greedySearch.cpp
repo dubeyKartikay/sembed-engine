@@ -116,7 +116,7 @@ std::vector<int> exactNearestIds(const AnnFixtureData &fixture,
 }
 
 template <typename DataSetType>
-class DeterministicAnnTest : public ::testing::Test {
+class DeterministicANNTest : public ::testing::Test {
 protected:
   AnnFixtureData fixture;
   std::filesystem::path datasetPath;
@@ -144,10 +144,10 @@ protected:
 };
 
 using DeterministicDataSets = ::testing::Types<FileDataSet, InMemoryDataSet>;
-TYPED_TEST_SUITE(DeterministicAnnTest, DeterministicDataSets);
+TYPED_TEST_SUITE(DeterministicANNTest, DeterministicDataSets);
 
 template <typename DataSetType>
-class LargeDeterministicAnnTest : public ::testing::Test {
+class LargeDeterministicANNTest : public ::testing::Test {
 protected:
   AnnFixtureData fixture = makeLargeClusteredFixture();
   std::filesystem::path datasetPath;
@@ -174,9 +174,9 @@ protected:
   }
 };
 
-TYPED_TEST_SUITE(LargeDeterministicAnnTest, DeterministicDataSets);
+TYPED_TEST_SUITE(LargeDeterministicANNTest, DeterministicDataSets);
 
-TYPED_TEST(DeterministicAnnTest, BuildIndexKeepsBoundedUniqueNeighbours) {
+TYPED_TEST(DeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 2);
@@ -242,7 +242,7 @@ TEST(VamanaIndexConstruction, BuildIndexDoesNotDuplicateExistingBacklinks) {
   std::filesystem::remove(datasetPath, ec);
 }
 
-TYPED_TEST(DeterministicAnnTest, SelfQueriesReturnExactRecord) {
+TYPED_TEST(DeterministicANNTest, SelfQueriesReturnExactRecord) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 3);
@@ -260,7 +260,7 @@ TYPED_TEST(DeterministicAnnTest, SelfQueriesReturnExactRecord) {
   }
 }
 
-TYPED_TEST(DeterministicAnnTest, GreedySearchReturnsCandidatesSortedByDistance) {
+TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 3);
@@ -289,7 +289,7 @@ TYPED_TEST(DeterministicAnnTest, GreedySearchReturnsCandidatesSortedByDistance) 
   EXPECT_EQ(unique.size(), results.approximateNN.size());
 }
 
-TYPED_TEST(DeterministicAnnTest,
+TYPED_TEST(DeterministicANNTest,
            GreedySearchMatchesExactNearestNeighborOnSeparatedQuery) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
@@ -306,7 +306,7 @@ TYPED_TEST(DeterministicAnnTest,
   EXPECT_EQ(results.approximateNN.front(), exact.front());
 }
 
-TYPED_TEST(LargeDeterministicAnnTest, BuildIndexKeepsBoundedUniqueNeighbours) {
+TYPED_TEST(LargeDeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 5);
@@ -325,7 +325,7 @@ TYPED_TEST(LargeDeterministicAnnTest, BuildIndexKeepsBoundedUniqueNeighbours) {
   }
 }
 
-TYPED_TEST(LargeDeterministicAnnTest, SelfQueriesReturnExactRecordAcrossGraph) {
+TYPED_TEST(LargeDeterministicANNTest, SelfQueriesReturnExactRecordAcrossGraph) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 6);
@@ -343,7 +343,7 @@ TYPED_TEST(LargeDeterministicAnnTest, SelfQueriesReturnExactRecordAcrossGraph) {
   }
 }
 
-TYPED_TEST(LargeDeterministicAnnTest,
+TYPED_TEST(LargeDeterministicANNTest,
            GreedySearchMatchesExactTopKOnSeparatedClusterQuery) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
