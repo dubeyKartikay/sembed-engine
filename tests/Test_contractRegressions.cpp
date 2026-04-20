@@ -2,7 +2,6 @@
 // component and robustness suites do not cover.
 
 #include "HDVector.hpp"
-#include "Set.hpp"
 #include "dataset.hpp"
 #include "graph.hpp"
 #include "utils.hpp"

@@ -27,8 +27,8 @@ InMemoryDataSet::InMemoryDataSet(fs::path path){
   if (raw_n < 0) {
       throw std::runtime_error("dataset record count must be non-negative");
   }
-  if (raw_stored_dimentions < 1) {
-      throw std::runtime_error("dataset vectors must include at least a record id");
+  if (raw_stored_dimentions <= 1) {
+      throw std::runtime_error("dataset vectors must include at least a record id and some data");
   }
   this->n = static_cast<uint64_t>(raw_n);
   this->storedDimentions = static_cast<uint64_t>(raw_stored_dimentions);
@@ -44,10 +44,13 @@ void InMemoryDataSet::readDataFromFile(){
   }
 
   const size_t total_floats =
-      static_cast<size_t>(this->storedDimentions * this->getN());
-  std::vector<float> buf(total_floats, 0.0f);
+      static_cast<size_t>(this->dimentions * this->getN());
+
+  std::vector<char*> buf(this->getN()*sizeof(int64_t) +total_floats * sizeof(float));
+
   m_file.read(reinterpret_cast<char *>(buf.data()),
-              static_cast<std::streamsize>(total_floats * sizeof(float)));
+              static_cast<std::streamsize>(this->getN()*sizeof(int64_t) +total_floats * sizeof(float)));
+
   if (!m_file) {
     throw std::runtime_error("failed to read dataset into memory");
   }

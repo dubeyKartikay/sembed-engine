@@ -18,7 +18,6 @@ add_library(utils STATIC
     src/utils/HDVector.cpp
     src/utils/Vamana.cpp
     src/utils/Graph.cpp
-    src/utils/Set.cpp
 )
 add_library(batch_stocastic_kmeans STATIC src/load/batch_stocastic_kmeans.cpp)
 add_library(load_from_binary STATIC src/load/load_from_binary.cpp)

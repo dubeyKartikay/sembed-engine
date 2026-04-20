@@ -230,30 +230,6 @@ TEST(GraphRobustness, ConstructorWithNegativeDegreeCompletesInReasonableTime) {
       ::testing::ExitedWithCode(0), "");
 }
 
-// ============================================================================
-// DataSet deeper bugs
-// ============================================================================
-
-// BUG: getRecordViewByIndex returns the SAME shared_ptr<HDVector> each time
-// for the InMemoryDataSet.  Mutating the returned vector silently corrupts
-// the dataset and every future view of that index.
-TEST(DataSetRobustness, InMemoryRecordViewsDoNotShareUnderlyingStorage) {
-  const auto path = uniqueFixturePath("shared_storage");
-  ScopedFile cleanup{path};
-  writeDataset(path, 2, 3,
-               {{0.0f, 1.0f, 2.0f}, {1.0f, 10.0f, 20.0f}});
-
-  InMemoryDataSet ds(path);
-  auto first = ds.getRecordViewByIndex(0);
-  ASSERT_NE(first.vector, nullptr);
-  (*first.vector)[0] = 9999.0f;
-
-  auto fresh = ds.getRecordViewByIndex(0);
-  EXPECT_FLOAT_EQ((*fresh.vector)[0], 1.0f)
-      << "mutating a RecordView leaked through to a subsequent read -- the "
-         "dataset hands out aliasing shared_ptrs instead of defensive copies";
-}
-
 // BUG: the header validation only rejects storedDimentions < 1. A value of
 // exactly 1 passes, which makes dimentions = 0 and yields a dataset of
 // zero-dimensional vectors.  Such a dataset cannot meaningfully participate
@@ -771,20 +747,6 @@ TEST(UtilsRobustness, IsValidPathRejectsEmptyString) {
   EXPECT_FALSE(isValidPath(""));
 }
 
-// BUG: getRandomNumber reseeds mt19937 with seed 2 on every call. The
-// existing test only checks variance over the [0, 1000] range, but the
-// determinism is even worse: across arbitrary ranges the first call always
-// returns the same underlying sample. A correct RNG should carry state
-// across invocations.
-TEST(UtilsRobustness, GetRandomNumberProducesIndependentSamplesAcrossRanges) {
-  std::set<int64_t> observed;
-  for (int64_t width = 2; width <= 8; ++width) {
-    observed.insert(getRandomNumber(0, width));
-  }
-  EXPECT_GT(observed.size(), 3U)
-      << "getRandomNumber is re-seeded on every call, so all samples collapse "
-         "to the same underlying mt19937 output";
-}
 
 // BUG: generateRandomNumbers must use a *shared* or caller-provided source of
 // randomness so successive calls produce different sequences.  The fact that

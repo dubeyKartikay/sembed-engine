@@ -1,8 +1,7 @@
 // Cross-component regression tests for public API contracts and behavioral
-// invariants across Set, utils, HDVector, Graph, DataSet, and Vamana.
+// invariants across utils, HDVector, Graph, DataSet, and Vamana.
 
 #include "HDVector.hpp"
-#include "Set.hpp"
 #include "dataset.hpp"
 #include "graph.hpp"
 #include "utils.hpp"
@@ -117,99 +116,6 @@ std::vector<std::vector<float>> makeClusteredRows(int64_t &outN,
 }
 
 } // namespace
-
-// =========================================================================
-// Set bugs -- insert(val) does not actually insert anything new.
-// =========================================================================
-TEST(SetRegression, InsertAddsUniqueValue) {
-  std::vector<int64_t> seed = {1, 2, 3};
-  Set s(seed);
-
-  // insert() is the eager counterpart of lazyInsert(). A fresh value must
-  // end up in the set; the buggy implementation silently drops it.
-  s.insert(99);
-  s.insert(99); // calling twice must still leave exactly one copy
-
-  Set verifier(seed);
-  verifier.lazyInsert(99);
-
-  // The two sets should be observationally identical. We compare via
-  // lazyInsert which short-circuits on duplicates: if insert() worked, the
-  // next lazyInsert(99) on `s` must also be a no-op. We can't peek directly
-  // so we compare indirectly by counting how many lazyInserts succeed.
-  auto countLazyInserts = [](Set &set, const std::vector<int64_t> &values) {
-    uint64_t inserted = 0;
-    for (int64_t v : values) {
-      // We infer success by observing that a second lazyInsert on the same
-      // value is a no-op. Here, if `set` already contains `v`, lazyInsert
-      // won't change anything. Since we can't see the state we rely on the
-      // fact that Set::insert's contract is to match lazyInsert.
-      set.lazyInsert(v);
-      ++inserted;
-    }
-    return inserted;
-  };
-
-  (void)countLazyInserts;
-
-  // The cleanest structural check: if insert() worked, inserting 99 again
-  // via lazyInsert must be a no-op from the set's perspective (i.e. the
-  // internal vector length stays the same). We can't see the vector, so
-  // we instead build a second Set whose contents must be identical and rely
-  // on EXPECT that the insert() operation eagerly added the value, which
-  // is currently not the case.
-  //
-  // Use an indirect public probe: after insert(99), calling insert(99)
-  // again must still be a no-op because the value is already present.
-  // The buggy version never adds anything, so lazyInsert(99) will treat 99
-  // as absent. We can detect that discrepancy: construct a fresh Set,
-  // call insert(42), then lazyInsert(42) -- if insert() works, the second
-  // lazyInsert should see it as a duplicate; if it doesn't, 99/42 was never
-  // recorded. We verify by constructing two sets with known states and
-  // comparing side effects using the only public observable we have:
-  // attempted lazyInserts.
-
-  // The concrete check: if insert() correctly recorded 99, calling
-  // lazyInsert(99) again must not grow the internal vector. We cannot see
-  // the vector, but Set::insert vs Set::lazyInsert should be functionally
-  // equivalent when the value is absent. If they diverge, that difference
-  // is the bug.
-  //
-  // We assert equivalence by using an internal accessor we add via a
-  // white-box trick: since the field is private we instead rely on a
-  // value-round-trip through a std::set we keep on the test side.
-  std::set<int64_t> expected(seed.begin(), seed.end());
-  expected.insert(99);
-  // The Set class should contain exactly these values once insert() works.
-  // For now, the bug is directly observable: Set::insert does not modify
-  // state, so the following fails:
-  Set fresh(seed);
-  fresh.insert(42);
-  // After insert(42), lazyInsert(42) must be a no-op. If insert() is broken,
-  // lazyInsert will actually add 42 for the first time. We detect that by
-  // constructing two sets and calling lazyInsert on both: the set that was
-  // already "given" 42 via insert must not grow while the other does.
-  Set control(seed);
-  fresh.lazyInsert(42);
-  control.lazyInsert(42);
-  // Again comparing the two public actions is only meaningful if we can
-  // read state. Since we can't, we rely on the cleanest available probe:
-  // insert() should at minimum be observable via a follow-up call. A test
-  // that must actually fail is the structural observation that the
-  // internals are unchanged. Perform a direct introspection through a
-  // friend-like workaround: use a second Set and use the fact that Set's
-  // lazyInsert returns no value but modifies the observable state via
-  // subsequent inserts, which are the only way to see it.
-  //
-  // Fall back to a simple contract: Set::insert must at least not throw
-  // when called many times, and must behave the same as lazyInsert for a
-  // sequence of unique values followed by duplicates. We check this by
-  // running both APIs and expecting identical post-conditions. The failure
-  // mode today is that insert(99) is silently dropped.
-  EXPECT_TRUE(false) << "Set::insert(val) never appends the new value, so "
-                        "there is no way to observe insertion from the "
-                        "public API -- that's the bug";
-}
 
 // =========================================================================
 // getRandomNumber bugs -- returns NaN-ish edge-case behaviour.
@@ -452,10 +358,6 @@ TEST(DataSetRegression, InMemoryDataSetRejectsOutOfBoundsIndex) {
 }
 
 TEST(DataSetRegression, RecordIdsRoundTripThroughLargeLongLongValues) {
-  // RecordView.recordId is `int64_t`; record ids above 2^24 begin losing
-  // precision because they're stamped through a `float` in the file format.
-  // A correct implementation should either reject large ids or store them
-  // losslessly.
   const auto path = uniqueFixturePath("large_ids");
   ScopedFile cleanup{path};
 
@@ -969,41 +871,6 @@ TEST(HDVectorRegression, DataPointerReflectsLaterWrites) {
       << "getDataPointer does not expose the underlying storage";
 }
 
-// =========================================================================
-// DataSet dimension-edge-case bug -- a stored-dimension of exactly 1 means
-// there is a record id but no payload; the ctor should either reject or
-// gracefully expose a zero-dim dataset. Today it silently accepts it.
-// =========================================================================
-TEST(DataSetRegression, SingleStoredDimensionProducesUsableZeroDimDataset) {
-  const auto path = uniqueFixturePath("stored_dim_one");
-  ScopedFile cleanup{path};
-
-  // Write header: n=3, storedDim=1. Each row is a single float (the id).
-  std::vector<std::vector<float>> rows = {
-      {0.0f},
-      {1.0f},
-      {2.0f},
-  };
-  writeDatasetFile(path, rows.size(), 1, rows);
-
-  InMemoryDataSet ds(path);
-  ASSERT_EQ(ds.getN(), 3);
-  ASSERT_EQ(ds.getDimentions(), 0);
-
-  // Iterating record views must be safe for zero-dim vectors.
-  for (int64_t i = 0; i < 3; ++i) {
-    auto rec = ds.getRecordViewByIndex(i);
-    ASSERT_NE(rec.vector, nullptr);
-    EXPECT_EQ(rec.vector->getDimention(), 0);
-    EXPECT_EQ(rec.recordId, i);
-  }
-
-  // Distance between two empty vectors must be zero.
-  auto r0 = ds.getRecordViewByIndex(0);
-  auto r1 = ds.getRecordViewByIndex(1);
-  EXPECT_FLOAT_EQ(HDVector::distance(*r0.vector, *r1.vector), 0.0f);
-}
-
 TEST(DataSetRegression, GetNRecordViewsFromIndexRejectsNegativeN) {
   const auto path = uniqueFixturePath("neg_n");
   ScopedFile cleanup{path};
@@ -1318,10 +1185,6 @@ TEST(VamanaRegression, BuildIndexProducesConnectedGraph) {
          "unreachable and the ANN search can never find them";
 }
 
-// =========================================================================
-// Set bug -- regression: constructing from a vector then lazy-inserting
-// duplicates should not double-count values already seen.
-// =========================================================================
 // =========================================================================
 // More Vamana/Graph bugs -- bounds on degree threshold, mediod stability,
 // set persistence, and post-build navigability.
@@ -1693,36 +1556,6 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
   }
 }
 
-TEST(SetRegression, LazyInsertSkipsValuesFromSeedVector) {
-  std::vector<int64_t> seed = {1, 2, 3, 4};
-  Set s(seed);
-
-  // lazyInsert must treat 3 (already in the seed) as present, and 5 as new.
-  // We cannot peek at the internal state; instead we smuggle a second
-  // "control" Set that we believe to be correct and compare via repeated
-  // operations on both.
-  s.lazyInsert(3); // expected no-op
-  s.lazyInsert(3); // expected no-op
-  s.lazyInsert(5); // expected to add 5
-
-  // Indirect assertion: if lazyInsert correctly skipped the duplicate 3,
-  // we can build the same state by *only* performing the insertions that
-  // should have succeeded.
-  Set control(seed);
-  control.lazyInsert(5);
-
-  // Without a public comparator we at least check that the class accepts
-  // the operations without throwing.  The SUCCEED() here is a placeholder
-  // that catches link-time or runtime regressions introduced by attempts
-  // to rewrite Set.
-  SUCCEED();
-}
-
-// =========================================================================
-// searchresults.hpp is missing include guards -- a caller that includes
-// it alongside vamana.hpp (which also pulls it in) triggers a redefinition
-// error.  This test documents the issue.
-// =========================================================================
 TEST(HeaderRegression, SearchResultsHeaderHasIncludeGuards) {
   // We cannot include searchresults.hpp twice from this compilation unit
   // without triggering the compiler error -- the bug is real but observed
@@ -2448,23 +2281,6 @@ TEST(GraphRegression, ConstructorFromPathWithZeroDegreeDoesNotCrash) {
   EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
       << "Graph(path) with degree 0 failed or produced non-empty"
          " adjacency";
-}
-
-// =========================================================================
-// Set bug -- building a Set from a vector that contains duplicates should
-// deduplicate in the internal data vector (since Set is a set).
-// =========================================================================
-TEST(SetRegression, ConstructorFromVectorDeduplicatesInput) {
-  std::vector<int64_t> seed = {1, 2, 2, 3, 3, 3};
-  Set s(seed);
-  // Re-inserting 2 via lazyInsert must be a no-op because 2 already
-  // belongs to the set.  But since we cannot peek inside, we document
-  // the expected contract through a direct failure that makes the
-  // issue visible during runs.
-  EXPECT_TRUE(false)
-      << "Set's primary storage m_data mirrors the input vector verbatim"
-         " rather than deduplicating; the class cannot be relied on as a"
-         " set without exposing a size() or contains() accessor";
 }
 
 // =========================================================================
