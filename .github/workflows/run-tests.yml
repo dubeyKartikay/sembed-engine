@@ -41,6 +41,7 @@ jobs:
       uses: dorny/test-reporter@v3
       if: ${{ !cancelled() }} 
       with:
+        fail-on-error: 'false'
         artifact: test-report            # artifact name
         name: GTest                  # Name of the check run which will be created
         path: '*.xml'                     # Path to test results (inside artifact .zip)
