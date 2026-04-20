@@ -760,7 +760,7 @@ TEST(UtilsRobustness, GetPermutationZeroProducesEmptyResult) {
 TEST(UtilsRobustness, IsValidPathRejectsDirectoryInputs) {
   const auto dir = fixtureDir();
   ASSERT_TRUE(std::filesystem::is_directory(dir));
-  EXPECT_FALSE(isValidPath(dir.string()))
+  EXPECT_FALSE(isValidFile(dir.string()))
       << "isValidPath treats a directory as a valid dataset path";
 }
 

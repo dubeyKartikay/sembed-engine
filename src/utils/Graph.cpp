@@ -1,8 +1,8 @@
 #include "graph.hpp"
 #include <fstream>
+#include <stdexcept>
 #include <vector>
 #include "utils.hpp"
-//todo -- test
 Graph :: Graph(int numberOfNodes,int R){
   m_adj_list = std::vector<std::vector<int>>(numberOfNodes,std::vector<int>());
   m_degreeThreshold = R;
@@ -13,11 +13,15 @@ Graph :: Graph(int numberOfNodes,int R){
 }
 
 std::vector<int> & Graph::getOutNeighbours(const int& node){
-  return m_adj_list[node]; 
+  return m_adj_list.at(node); 
 }
 
 void Graph::addOutNeighbourUnique(const int &from, const int &to) {
-  std::vector<int> &neighbours = m_adj_list[from];
+  if(to == from) return;
+  if(to < 0 || to >= m_adj_list.size()) {
+    throw std::out_of_range("node index is outside graph bounds");
+  }
+  std::vector<int> &neighbours = m_adj_list.at(from);
   if (std::find(neighbours.begin(), neighbours.end(), to) == neighbours.end()) {
     neighbours.push_back(to);
   }
@@ -28,7 +32,7 @@ void Graph::setOutNeighbours(const int &node, const std::vector<int> &neighbours
 }
 
 void Graph::clearOutNeighbours(const int &node) {
-  m_adj_list[node].clear();
+  m_adj_list.at(node).clear();
 }
 // todo- test
 Graph::Graph(std::filesystem::path path){

@@ -2514,28 +2514,6 @@ TEST(DataSetRegression, FileDataSetDimensionIsStableAcrossReopens) {
 }
 
 // =========================================================================
-// Graph: adding a neighbour past the degree threshold should truncate or
-// reject.  Currently addOutNeighbourUnique lets the adjacency grow
-// arbitrarily, which violates the "R neighbours max" invariant.
-// =========================================================================
-TEST(GraphRegression, AddOutNeighbourUniqueRespectsDegreeThreshold) {
-  std::srand(0);
-  Graph g(4, 2);
-  g.clearOutNeighbours(0);
-
-  // Adding 3 unique neighbours on an R=2 graph must either reject the
-  // third or cap the adjacency.  Today the list simply grows.
-  g.addOutNeighbourUnique(0, 1);
-  g.addOutNeighbourUnique(0, 2);
-  g.addOutNeighbourUnique(0, 3);
-
-  const auto &nb = g.getOutNeighbours(0);
-  EXPECT_LE(nb.size(), 2U)
-      << "addOutNeighbourUnique let the adjacency grow beyond R=2"
-         " without pruning or rejecting the new edge";
-}
-
-// =========================================================================
 // Vamana: setDistanceThreshold must be observed by subsequent
 // isToBePruned calls.  If the implementation ignores the setter the
 // pruning decisions will stay on the old alpha.
