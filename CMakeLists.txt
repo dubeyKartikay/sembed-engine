@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 add_subdirectory(external)
 
 set(PROJECT_INCLUDE_DIR src/include)
@@ -34,6 +36,26 @@ target_link_libraries(sembed PUBLIC load_from_binary)
 
 enable_testing()
 
+set(GLOVE_FIXTURE "${CMAKE_BINARY_DIR}/gvec.bin")
+set(WORD2VEC_FIXTURE "${CMAKE_BINARY_DIR}/w2v.bin")
+
+add_custom_command(
+    OUTPUT "${GLOVE_FIXTURE}" "${WORD2VEC_FIXTURE}"
+    COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/scripts/generate_embedding_fixtures.py"
+            --output-dir "${CMAKE_BINARY_DIR}"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/scripts/generate_embedding_fixtures.py"
+        "${CMAKE_SOURCE_DIR}/convertUtils/convertGloveTXT.c"
+        "${CMAKE_SOURCE_DIR}/convertUtils/convertWord2vectDS.c"
+        "${CMAKE_SOURCE_DIR}/testdata/embeddings/glove/glove.6B.50d.subset.txt"
+        "${CMAKE_SOURCE_DIR}/testdata/embeddings/word2vec/google-word2vec.subset.bin"
+    COMMENT "Generating embedding fixtures"
+    VERBATIM
+)
+
+add_custom_target(embedding_fixtures DEPENDS "${GLOVE_FIXTURE}" "${WORD2VEC_FIXTURE}")
+
 add_executable(Test
     tests/Test_diskUtils.cpp
     tests/Test_inMemory.cpp
@@ -46,6 +68,7 @@ add_executable(Test
     tests/Test_robustnessAndIntegration.cpp
 )
 target_link_libraries(Test PUBLIC GTest::gtest_main utils load_from_binary)
+add_dependencies(Test embedding_fixtures)
 
 include(GoogleTest)
 gtest_discover_tests(Test)

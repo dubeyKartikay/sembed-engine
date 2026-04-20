@@ -3,11 +3,17 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
+
+namespace {
+constexpr int kFixtureRows = 256;
+constexpr int kFixtureDimensions = 50;
+}
+
 TEST(BinaryLoading, LoadsGloveBinaryOnDisk) {
   std::filesystem::path path("../build/gvec.bin");
   FileDataSet dataset(path);
-  ASSERT_EQ(dataset.getN(), 400000);
-  ASSERT_EQ(dataset.getDimentions(), 50);
+  ASSERT_EQ(dataset.getN(), kFixtureRows);
+  ASSERT_EQ(dataset.getDimentions(), kFixtureDimensions);
 }
 
 TEST(BinaryLoading, ReadsFirstVectorFromGloveBinaryOnDisk) {
