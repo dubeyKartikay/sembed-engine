@@ -30,6 +30,7 @@ You need:
 - A C++17 compiler
 - A C compiler for the fixture converters used during the build
 - Python 3
+- Git, so the vendored submodules can be initialized
 - A CMake generator such as `Ninja` or `Unix Makefiles`
 
 ## Build
@@ -37,6 +38,7 @@ You need:
 Configure and compile:
 
 ```sh
+git submodule update --init --recursive
 cmake -S . -B build
 cmake --build build
 ```
@@ -57,6 +59,12 @@ The build also generates deterministic embedding fixtures used by tests:
 - `build/w2v.words.bin`
 
 Those fixtures are generated automatically by [`scripts/generate_embedding_fixtures.py`](scripts/generate_embedding_fixtures.py) from the checked-in subsets in [`testdata/embeddings`](testdata/embeddings).
+
+The repository vendors third-party C++ dependencies under [`external`](external):
+
+- `googletest` for tests
+- `CLI11` for the benchmark CLI
+- `nlohmann/json` for benchmark JSON serialization
 
 ## Test
 
@@ -92,9 +100,14 @@ The repository now includes a small benchmark harness for Phase 0 roadmap work:
 - `scripts/run_benchmarks.py`: runs a checked-in profile and aggregates results.
 - `benchmarks/local_smoke.json`: the default local profile over the deterministic fixture datasets.
 
+The benchmark executable now uses `CLI11` for argument parsing and `nlohmann/json`
+for report generation. The CLI flag names and JSON schema remain compatible with
+the checked-in Python runner and the examples below.
+
 Quick start from a fresh checkout:
 
 ```sh
+git submodule update --init --recursive
 cmake -S . -B build
 cmake --build build --target sembed_benchmark embedding_fixtures
 cmake --build build --target benchmark_smoke
@@ -133,6 +146,24 @@ Run one benchmark directly and write a single JSON result:
 
 Use `--algorithm bruteforce` to run the exact baseline instead of Vamana.
 
+The main benchmark CLI options are:
+
+- `--algorithm <bruteforce|vamana>`
+- `--dataset <path>`
+- `--query-dataset <path>`
+- `--dataset-mode <file|memory>`
+- `--query-count <n>`
+- `--k <n>`
+- `--seed <n>`
+- `--exclude-self <true|false>`
+- `--artifact-dir <path>`
+- `--degree-threshold <n>`
+- `--search-list-size <n>`
+- `--distance-threshold <float>`
+- `--output <path>`
+
+Run `./build/sembed_benchmark --help` to see the generated usage text and value validation.
+
 The JSON report tracks the current Phase 0 metrics the engine can support today:
 
 - `recall_at_k`
@@ -145,6 +176,15 @@ The JSON report tracks the current Phase 0 metrics the engine can support today:
 - `restart_time_seconds`
 
 It also reports dataset load time and average visited nodes. `insert_throughput_vectors_per_second` is currently `null` because the engine does not expose an insert API yet.
+
+The top-level JSON shape is stable and looks like:
+
+- `algorithm`
+- `dataset`
+- `workload`
+- `parameters`
+- `metrics`
+- `notes`
 
 The smoke profile compares:
 

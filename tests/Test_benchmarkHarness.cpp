@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -78,9 +79,19 @@ TEST(BenchmarkHarnessRuntime, BruteForceBenchmarkReportsPerfectRecall) {
   EXPECT_FALSE(result.metrics.buildTimeSeconds.has_value());
   EXPECT_FALSE(result.metrics.ssdFootprintBytes.has_value());
   EXPECT_FALSE(result.metrics.restartTimeSeconds.has_value());
-  EXPECT_NE(json.find("\"algorithm\": \"bruteforce\""), std::string::npos);
-  EXPECT_NE(json.find("\"insert_throughput_vectors_per_second\": null"),
-            std::string::npos);
+
+  const auto parsed = nlohmann::json::parse(json);
+  EXPECT_EQ(parsed.at("algorithm"), "bruteforce");
+  EXPECT_EQ(parsed.at("dataset").at("mode"), "memory");
+  EXPECT_EQ(parsed.at("workload").at("query_dataset_path"), nullptr);
+  EXPECT_EQ(parsed.at("parameters").at("degree_threshold"), nullptr);
+  EXPECT_EQ(parsed.at("parameters").at("search_list_size"), nullptr);
+  EXPECT_EQ(parsed.at("parameters").at("distance_threshold"), nullptr);
+  EXPECT_EQ(parsed.at("metrics").at("build_time_seconds"), nullptr);
+  EXPECT_EQ(parsed.at("metrics").at("ssd_footprint_bytes"), nullptr);
+  EXPECT_EQ(parsed.at("metrics").at("restart_time_seconds"), nullptr);
+  EXPECT_EQ(parsed.at("metrics").at("insert_throughput_vectors_per_second"),
+            nullptr);
 
   removePathRecursively(artifactDir);
 }
@@ -104,6 +115,7 @@ TEST(BenchmarkHarnessRuntime, VamanaBenchmarkReportsPersistenceMetrics) {
   parameters.distanceThreshold = 1.2f;
 
   const BenchmarkResult result = runBenchmark(parameters);
+  const auto parsed = nlohmann::json::parse(benchmarkResultToJson(result));
 
   EXPECT_EQ(result.algorithm, BenchmarkAlgorithm::Vamana);
   EXPECT_EQ(result.queryCount, 3U);
@@ -114,6 +126,16 @@ TEST(BenchmarkHarnessRuntime, VamanaBenchmarkReportsPersistenceMetrics) {
   EXPECT_TRUE(result.metrics.averageVisitedNodes.has_value());
   EXPECT_GE(result.metrics.recallAtK, 0.0);
   EXPECT_LE(result.metrics.recallAtK, 1.0);
+  EXPECT_EQ(parsed.at("algorithm"), "vamana");
+  EXPECT_EQ(parsed.at("dataset").at("mode"), "memory");
+  EXPECT_EQ(parsed.at("parameters").at("degree_threshold"), 2);
+  EXPECT_EQ(parsed.at("parameters").at("search_list_size"), 4);
+  EXPECT_NEAR(parsed.at("parameters").at("distance_threshold").get<double>(),
+              1.2, 1e-6);
+  EXPECT_TRUE(parsed.at("metrics").at("build_time_seconds").is_number());
+  EXPECT_TRUE(parsed.at("metrics").at("ssd_footprint_bytes").is_number());
+  EXPECT_TRUE(parsed.at("metrics").at("restart_time_seconds").is_number());
+  EXPECT_TRUE(parsed.at("metrics").at("average_visited_nodes").is_number());
   ASSERT_TRUE(result.notes.has_value());
   EXPECT_NE(result.notes->find("insert API"), std::string::npos);
 

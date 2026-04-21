@@ -1,166 +1,138 @@
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <optional>
 #include <stdexcept>
 #include <string>
+
+#include <CLI/CLI.hpp>
 
 #include "benchmark_harness.hpp"
 
 namespace {
 
-void printUsage(std::ostream &out) {
-  out << "Usage: sembed_benchmark --algorithm <bruteforce|vamana> "
-         "--dataset <path> [options]\n"
-      << "Options:\n"
-      << "  --query-dataset <path>        Optional query dataset.\n"
-      << "  --dataset-mode <file|memory>  Dataset loading mode. Default: memory.\n"
-      << "  --query-count <n>             Number of sampled queries. Default: min(100, N).\n"
-      << "  --k <n>                       Recall/search depth. Default: 10.\n"
-      << "  --seed <n>                    Deterministic workload seed.\n"
-      << "  --exclude-self <true|false>   Exclude query id when queries come from the base dataset.\n"
-      << "  --artifact-dir <path>         Directory for saved benchmark artifacts.\n"
-      << "  --degree-threshold <n>        Vamana R parameter.\n"
-      << "  --search-list-size <n>        Vamana L parameter.\n"
-      << "  --distance-threshold <float>  Vamana alpha parameter.\n"
-      << "  --output <path>               Write JSON output to a file instead of stdout.\n";
-}
-
-uint64_t parseUint64(const std::string &value, const std::string &flagName) {
-  size_t consumed = 0;
-  const uint64_t parsed = std::stoull(value, &consumed);
-  if (consumed != value.size()) {
-    throw std::invalid_argument("invalid integer for " + flagName + ": " + value);
+BenchmarkAlgorithm benchmarkAlgorithmFromName(const std::string &value) {
+  if (value == "bruteforce" || value == "brute-force") {
+    return BenchmarkAlgorithm::BruteForce;
   }
-  return parsed;
-}
-
-float parseFloat(const std::string &value, const std::string &flagName) {
-  size_t consumed = 0;
-  const float parsed = std::stof(value, &consumed);
-  if (consumed != value.size()) {
-    throw std::invalid_argument("invalid float for " + flagName + ": " + value);
+  if (value == "vamana") {
+    return BenchmarkAlgorithm::Vamana;
   }
-  return parsed;
+
+  throw std::invalid_argument("unknown benchmark algorithm: " + value);
 }
 
-bool parseBool(const std::string &value, const std::string &flagName) {
+BenchmarkDataSetMode benchmarkDataSetModeFromName(const std::string &value) {
+  if (value == "file") {
+    return BenchmarkDataSetMode::File;
+  }
+  if (value == "memory") {
+    return BenchmarkDataSetMode::Memory;
+  }
+
+  throw std::invalid_argument("unknown dataset mode: " + value);
+}
+
+bool parseBoolValue(const std::string &value) {
   if (value == "true") {
     return true;
   }
   if (value == "false") {
     return false;
   }
-  throw std::invalid_argument("invalid boolean for " + flagName + ": " + value);
+
+  throw std::invalid_argument("unknown boolean value: " + value);
 }
 
-std::string requireValue(int argc, char **argv, int &index,
-                         const std::string &flagName) {
-  if (index + 1 >= argc) {
-    throw std::invalid_argument("missing value for " + flagName);
+void writeBenchmarkResult(const std::string &json,
+                          const std::filesystem::path &outputPath) {
+  const std::filesystem::path parent = outputPath.parent_path();
+  if (!parent.empty()) {
+    std::filesystem::create_directories(parent);
   }
-  ++index;
-  return argv[index];
+
+  std::ofstream out(outputPath, std::ios::trunc);
+  if (!out.is_open()) {
+    throw std::runtime_error("failed to open output path for writing");
+  }
+
+  out << json << '\n';
 }
 
 }  // namespace
 
 int main(int argc, char **argv) {
+  BenchmarkParameters parameters;
+  std::string algorithmName;
+  std::string datasetModeName = "memory";
+  std::string excludeSelfValue = "true";
+  std::string queryDatasetPath;
+  std::string outputPath;
+
+  CLI::App app{"Benchmark one algorithm/configuration and emit JSON."};
+  app.set_help_flag("-h,--help", "Show this help message and exit.");
+
+  app.add_option("--algorithm", algorithmName,
+                 "Benchmark algorithm: bruteforce or vamana.")
+      ->required()
+      ->transform(CLI::CheckedTransformer(
+          {{"bruteforce", "bruteforce"},
+           {"brute-force", "bruteforce"},
+           {"vamana", "vamana"}},
+          CLI::ignore_case));
+  app.add_option("--dataset", parameters.datasetPath, "Base dataset path.")
+      ->required();
+  app.add_option("--query-dataset", queryDatasetPath, "Optional query dataset.");
+  app.add_option("--dataset-mode", datasetModeName,
+                 "Dataset loading mode: file or memory.")
+      ->capture_default_str()
+      ->transform(CLI::CheckedTransformer({{"file", "file"},
+                                           {"memory", "memory"}},
+                                          CLI::ignore_case));
+  app.add_option("--query-count", parameters.queryCount,
+                 "Number of sampled queries. Default: min(100, N).");
+  app.add_option("--k", parameters.k, "Recall/search depth.")
+      ->capture_default_str();
+  app.add_option("--seed", parameters.seed, "Deterministic workload seed.")
+      ->capture_default_str();
+  app.add_option("--exclude-self", excludeSelfValue,
+                 "Exclude query id when queries come from the base dataset.")
+      ->capture_default_str()
+      ->transform(CLI::CheckedTransformer({{"true", "true"},
+                                           {"false", "false"}},
+                                          CLI::ignore_case));
+  app.add_option("--artifact-dir", parameters.artifactDir,
+                 "Directory for saved benchmark artifacts.")
+      ->capture_default_str();
+  app.add_option("--degree-threshold", parameters.degreeThreshold,
+                 "Vamana R parameter.")
+      ->capture_default_str();
+  app.add_option("--search-list-size", parameters.searchListSize,
+                 "Vamana L parameter.")
+      ->capture_default_str();
+  app.add_option("--distance-threshold", parameters.distanceThreshold,
+                 "Vamana alpha parameter.")
+      ->capture_default_str();
+  app.add_option("--output", outputPath,
+                 "Write JSON output to a file instead of stdout.");
+
   try {
-    BenchmarkParameters parameters;
-    std::optional<std::filesystem::path> outputPath;
-    bool algorithmSeen = false;
-    bool datasetSeen = false;
+    app.parse(argc, argv);
+  } catch (const CLI::ParseError &error) {
+    return app.exit(error);
+  }
 
-    for (int i = 1; i < argc; ++i) {
-      const std::string flag = argv[i];
-      if (flag == "--help" || flag == "-h") {
-        printUsage(std::cout);
-        return 0;
-      }
-      if (flag == "--algorithm") {
-        parameters.algorithm =
-            parseBenchmarkAlgorithm(requireValue(argc, argv, i, flag));
-        algorithmSeen = true;
-        continue;
-      }
-      if (flag == "--dataset") {
-        parameters.datasetPath = requireValue(argc, argv, i, flag);
-        datasetSeen = true;
-        continue;
-      }
-      if (flag == "--query-dataset") {
-        parameters.queryDatasetPath = requireValue(argc, argv, i, flag);
-        continue;
-      }
-      if (flag == "--dataset-mode") {
-        parameters.datasetMode =
-            parseBenchmarkDataSetMode(requireValue(argc, argv, i, flag));
-        continue;
-      }
-      if (flag == "--query-count") {
-        parameters.queryCount =
-            parseUint64(requireValue(argc, argv, i, flag), flag);
-        continue;
-      }
-      if (flag == "--k") {
-        parameters.k = parseUint64(requireValue(argc, argv, i, flag), flag);
-        continue;
-      }
-      if (flag == "--seed") {
-        parameters.seed = parseUint64(requireValue(argc, argv, i, flag), flag);
-        continue;
-      }
-      if (flag == "--exclude-self") {
-        parameters.excludeSelf =
-            parseBool(requireValue(argc, argv, i, flag), flag);
-        continue;
-      }
-      if (flag == "--artifact-dir") {
-        parameters.artifactDir = requireValue(argc, argv, i, flag);
-        continue;
-      }
-      if (flag == "--degree-threshold") {
-        parameters.degreeThreshold =
-            parseUint64(requireValue(argc, argv, i, flag), flag);
-        continue;
-      }
-      if (flag == "--search-list-size") {
-        parameters.searchListSize =
-            parseUint64(requireValue(argc, argv, i, flag), flag);
-        continue;
-      }
-      if (flag == "--distance-threshold") {
-        parameters.distanceThreshold =
-            parseFloat(requireValue(argc, argv, i, flag), flag);
-        continue;
-      }
-      if (flag == "--output") {
-        outputPath = requireValue(argc, argv, i, flag);
-        continue;
-      }
-
-      throw std::invalid_argument("unknown argument: " + flag);
-    }
-
-    if (!algorithmSeen || !datasetSeen) {
-      printUsage(std::cerr);
-      return 1;
+  try {
+    parameters.algorithm = benchmarkAlgorithmFromName(algorithmName);
+    parameters.datasetMode = benchmarkDataSetModeFromName(datasetModeName);
+    parameters.excludeSelf = parseBoolValue(excludeSelfValue);
+    if (!queryDatasetPath.empty()) {
+      parameters.queryDatasetPath = queryDatasetPath;
     }
 
     const BenchmarkResult result = runBenchmark(parameters);
     const std::string json = benchmarkResultToJson(result);
-    if (outputPath) {
-      const std::filesystem::path parent = outputPath->parent_path();
-      if (!parent.empty()) {
-        std::filesystem::create_directories(parent);
-      }
-      std::ofstream out(*outputPath, std::ios::trunc);
-      if (!out.is_open()) {
-        throw std::runtime_error("failed to open output path for writing");
-      }
-      out << json << '\n';
+    if (!outputPath.empty()) {
+      writeBenchmarkResult(json, outputPath);
       return 0;
     }
 

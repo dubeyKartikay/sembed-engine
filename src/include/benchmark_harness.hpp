@@ -73,11 +73,6 @@ double computePercentile(std::vector<double> values, double percentile);
 NodeList filterAndTruncateResults(const NodeList &input, uint64_t k,
                                   OptionalNodeId excludedNode = std::nullopt);
 
-BenchmarkAlgorithm parseBenchmarkAlgorithm(const std::string &value);
-BenchmarkDataSetMode parseBenchmarkDataSetMode(const std::string &value);
-std::string benchmarkAlgorithmName(BenchmarkAlgorithm algorithm);
-std::string benchmarkDataSetModeName(BenchmarkDataSetMode mode);
-
 BenchmarkResult runBenchmark(const BenchmarkParameters &parameters);
 std::string benchmarkResultToJson(const BenchmarkResult &result);
 

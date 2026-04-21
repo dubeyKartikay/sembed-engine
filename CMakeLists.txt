@@ -27,7 +27,7 @@ target_include_directories(batch_stocastic_kmeans PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(benchmark_support PUBLIC ${PROJECT_INCLUDE_DIR})
 
 target_link_libraries(batch_stocastic_kmeans PUBLIC utils)
-target_link_libraries(benchmark_support PUBLIC utils)
+target_link_libraries(benchmark_support PUBLIC utils nlohmann_json::nlohmann_json)
 
 add_executable(sembed src/main/main.cpp)
 target_include_directories(sembed PUBLIC ${PROJECT_INCLUDE_DIR})
@@ -35,7 +35,7 @@ target_link_libraries(sembed PUBLIC utils)
 
 add_executable(sembed_benchmark src/bench/main.cpp)
 target_include_directories(sembed_benchmark PUBLIC ${PROJECT_INCLUDE_DIR})
-target_link_libraries(sembed_benchmark PUBLIC benchmark_support)
+target_link_libraries(sembed_benchmark PUBLIC benchmark_support CLI11::CLI11)
 
 enable_testing()
 

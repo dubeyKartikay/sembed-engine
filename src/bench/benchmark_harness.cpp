@@ -5,11 +5,9 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -21,15 +19,26 @@
 #include <unistd.h>
 #endif
 
+#include <nlohmann/json.hpp>
+
 #include "HDVector.hpp"
 #include "dataset.hpp"
 #include "searchresults.hpp"
 #include "utils.hpp"
 #include "vamana.hpp"
 
+NLOHMANN_JSON_SERIALIZE_ENUM(BenchmarkAlgorithm,
+                             {{BenchmarkAlgorithm::BruteForce, "bruteforce"},
+                              {BenchmarkAlgorithm::Vamana, "vamana"}})
+
+NLOHMANN_JSON_SERIALIZE_ENUM(BenchmarkDataSetMode,
+                             {{BenchmarkDataSetMode::File, "file"},
+                              {BenchmarkDataSetMode::Memory, "memory"}})
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
+using Json = nlohmann::json;
 
 struct QueryWorkloadEntry {
   uint64_t queryIndex;
@@ -51,6 +60,28 @@ double elapsedSeconds(const Clock::time_point &start,
 double elapsedMilliseconds(const Clock::time_point &start,
                            const Clock::time_point &end) {
   return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+std::string benchmarkAlgorithmName(BenchmarkAlgorithm algorithm) {
+  switch (algorithm) {
+    case BenchmarkAlgorithm::BruteForce:
+      return "bruteforce";
+    case BenchmarkAlgorithm::Vamana:
+      return "vamana";
+  }
+
+  throw std::invalid_argument("unknown benchmark algorithm");
+}
+
+Json jsonPath(const std::filesystem::path &value) { return value.string(); }
+
+template <typename T>
+Json jsonOptional(const std::optional<T> &value) {
+  return value ? Json(*value) : Json(nullptr);
+}
+
+Json jsonOptionalPath(const std::optional<std::filesystem::path> &value) {
+  return value ? Json(value->string()) : Json(nullptr);
 }
 
 float squaredDistance(const HDVector &left, const HDVector &right) {
@@ -279,75 +310,6 @@ std::filesystem::path makeArtifactPath(const std::filesystem::path &artifactDir,
           ".graph");
 }
 
-std::string escapeJson(const std::string &value) {
-  std::ostringstream escaped;
-  for (char ch : value) {
-    switch (ch) {
-      case '\\':
-        escaped << "\\\\";
-        break;
-      case '"':
-        escaped << "\\\"";
-        break;
-      case '\b':
-        escaped << "\\b";
-        break;
-      case '\f':
-        escaped << "\\f";
-        break;
-      case '\n':
-        escaped << "\\n";
-        break;
-      case '\r':
-        escaped << "\\r";
-        break;
-      case '\t':
-        escaped << "\\t";
-        break;
-      default:
-        escaped << ch;
-        break;
-    }
-  }
-  return escaped.str();
-}
-
-std::string jsonString(const std::string &value) {
-  return "\"" + escapeJson(value) + "\"";
-}
-
-std::string jsonBool(bool value) { return value ? "true" : "false"; }
-
-std::string jsonDouble(double value) {
-  std::ostringstream out;
-  out << std::fixed << std::setprecision(6) << value;
-  return out.str();
-}
-
-std::string jsonOptionalDouble(const std::optional<double> &value) {
-  return value ? jsonDouble(*value) : "null";
-}
-
-std::string jsonOptionalUint64(const std::optional<uint64_t> &value) {
-  return value ? std::to_string(*value) : "null";
-}
-
-std::string jsonOptionalFloat(const std::optional<float> &value) {
-  if (!value) {
-    return "null";
-  }
-  return jsonDouble(static_cast<double>(*value));
-}
-
-std::string jsonOptionalPath(
-    const std::optional<std::filesystem::path> &value) {
-  return value ? jsonString(value->string()) : "null";
-}
-
-std::string jsonOptionalString(const std::optional<std::string> &value) {
-  return value ? jsonString(*value) : "null";
-}
-
 }  // namespace
 
 double computeRecallAtK(const NodeList &approximate, const NodeList &exact,
@@ -422,48 +384,43 @@ NodeList filterAndTruncateResults(const NodeList &input, uint64_t k,
   return filtered;
 }
 
-BenchmarkAlgorithm parseBenchmarkAlgorithm(const std::string &value) {
-  if (value == "bruteforce" || value == "brute-force") {
-    return BenchmarkAlgorithm::BruteForce;
-  }
-  if (value == "vamana") {
-    return BenchmarkAlgorithm::Vamana;
-  }
-
-  throw std::invalid_argument("unknown benchmark algorithm: " + value);
+void to_json(nlohmann::json &json, const BenchmarkMetrics &metrics) {
+  json = {{"recall_at_k", metrics.recallAtK},
+          {"latency_p50_ms", metrics.latencyP50Ms},
+          {"latency_p95_ms", metrics.latencyP95Ms},
+          {"queries_per_second", metrics.queriesPerSecond},
+          {"build_time_seconds", jsonOptional(metrics.buildTimeSeconds)},
+          {"ram_footprint_bytes", jsonOptional(metrics.ramFootprintBytes)},
+          {"ssd_footprint_bytes", jsonOptional(metrics.ssdFootprintBytes)},
+          {"restart_time_seconds", jsonOptional(metrics.restartTimeSeconds)},
+          {"insert_throughput_vectors_per_second",
+           jsonOptional(metrics.insertThroughputVectorsPerSecond)},
+          {"dataset_load_time_seconds",
+           jsonOptional(metrics.datasetLoadTimeSeconds)},
+          {"query_dataset_load_time_seconds",
+           jsonOptional(metrics.queryDatasetLoadTimeSeconds)},
+          {"average_visited_nodes", jsonOptional(metrics.averageVisitedNodes)}};
 }
 
-BenchmarkDataSetMode parseBenchmarkDataSetMode(const std::string &value) {
-  if (value == "file") {
-    return BenchmarkDataSetMode::File;
-  }
-  if (value == "memory") {
-    return BenchmarkDataSetMode::Memory;
-  }
-
-  throw std::invalid_argument("unknown dataset mode: " + value);
-}
-
-std::string benchmarkAlgorithmName(BenchmarkAlgorithm algorithm) {
-  switch (algorithm) {
-    case BenchmarkAlgorithm::BruteForce:
-      return "bruteforce";
-    case BenchmarkAlgorithm::Vamana:
-      return "vamana";
-  }
-
-  throw std::invalid_argument("unknown benchmark algorithm");
-}
-
-std::string benchmarkDataSetModeName(BenchmarkDataSetMode mode) {
-  switch (mode) {
-    case BenchmarkDataSetMode::File:
-      return "file";
-    case BenchmarkDataSetMode::Memory:
-      return "memory";
-  }
-
-  throw std::invalid_argument("unknown dataset mode");
+void to_json(nlohmann::json &json, const BenchmarkResult &result) {
+  json = {{"algorithm", result.algorithm},
+          {"dataset",
+           {{"path", jsonPath(result.datasetPath)},
+            {"mode", result.datasetMode},
+            {"records", result.datasetSize},
+            {"dimensions", result.dimensions}}},
+          {"workload",
+           {{"query_dataset_path", jsonOptionalPath(result.queryDatasetPath)},
+            {"query_count", result.queryCount},
+            {"k", result.k},
+            {"seed", result.seed},
+            {"exclude_self", result.excludeSelf}}},
+          {"parameters",
+           {{"degree_threshold", jsonOptional(result.degreeThreshold)},
+            {"search_list_size", jsonOptional(result.searchListSize)},
+            {"distance_threshold", jsonOptional(result.distanceThreshold)}}},
+          {"metrics", result.metrics},
+          {"notes", jsonOptional(result.notes)}};
 }
 
 BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
@@ -597,63 +554,5 @@ BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
 }
 
 std::string benchmarkResultToJson(const BenchmarkResult &result) {
-  std::ostringstream out;
-  out << "{\n"
-      << "  \"algorithm\": "
-      << jsonString(benchmarkAlgorithmName(result.algorithm)) << ",\n"
-      << "  \"dataset\": {\n"
-      << "    \"path\": " << jsonString(result.datasetPath.string()) << ",\n"
-      << "    \"mode\": "
-      << jsonString(benchmarkDataSetModeName(result.datasetMode)) << ",\n"
-      << "    \"records\": " << result.datasetSize << ",\n"
-      << "    \"dimensions\": " << result.dimensions << "\n"
-      << "  },\n"
-      << "  \"workload\": {\n"
-      << "    \"query_dataset_path\": "
-      << jsonOptionalPath(result.queryDatasetPath) << ",\n"
-      << "    \"query_count\": " << result.queryCount << ",\n"
-      << "    \"k\": " << result.k << ",\n"
-      << "    \"seed\": " << result.seed << ",\n"
-      << "    \"exclude_self\": " << jsonBool(result.excludeSelf) << "\n"
-      << "  },\n"
-      << "  \"parameters\": {\n"
-      << "    \"degree_threshold\": "
-      << jsonOptionalUint64(result.degreeThreshold) << ",\n"
-      << "    \"search_list_size\": "
-      << jsonOptionalUint64(result.searchListSize) << ",\n"
-      << "    \"distance_threshold\": "
-      << jsonOptionalFloat(result.distanceThreshold) << "\n"
-      << "  },\n"
-      << "  \"metrics\": {\n"
-      << "    \"recall_at_k\": " << jsonDouble(result.metrics.recallAtK)
-      << ",\n"
-      << "    \"latency_p50_ms\": "
-      << jsonDouble(result.metrics.latencyP50Ms) << ",\n"
-      << "    \"latency_p95_ms\": "
-      << jsonDouble(result.metrics.latencyP95Ms) << ",\n"
-      << "    \"queries_per_second\": "
-      << jsonDouble(result.metrics.queriesPerSecond) << ",\n"
-      << "    \"build_time_seconds\": "
-      << jsonOptionalDouble(result.metrics.buildTimeSeconds) << ",\n"
-      << "    \"ram_footprint_bytes\": "
-      << jsonOptionalUint64(result.metrics.ramFootprintBytes) << ",\n"
-      << "    \"ssd_footprint_bytes\": "
-      << jsonOptionalUint64(result.metrics.ssdFootprintBytes) << ",\n"
-      << "    \"restart_time_seconds\": "
-      << jsonOptionalDouble(result.metrics.restartTimeSeconds) << ",\n"
-      << "    \"insert_throughput_vectors_per_second\": "
-      << jsonOptionalDouble(
-             result.metrics.insertThroughputVectorsPerSecond)
-      << ",\n"
-      << "    \"dataset_load_time_seconds\": "
-      << jsonOptionalDouble(result.metrics.datasetLoadTimeSeconds) << ",\n"
-      << "    \"query_dataset_load_time_seconds\": "
-      << jsonOptionalDouble(result.metrics.queryDatasetLoadTimeSeconds)
-      << ",\n"
-      << "    \"average_visited_nodes\": "
-      << jsonOptionalDouble(result.metrics.averageVisitedNodes) << "\n"
-      << "  },\n"
-      << "  \"notes\": " << jsonOptionalString(result.notes) << "\n"
-      << "}";
-  return out.str();
+  return nlohmann::json(result).dump(2);
 }
