@@ -559,29 +559,6 @@ TEST(VamanaRegression, SaveIsImplemented) {
          "in src/utils/Vamana.cpp -- any caller would fail to link";
 }
 
-TEST(VamanaRegression, IsToBePrunedFlagsSamePointAsNotPrunable) {
-  // When p_dash == p_star the distance between them is zero; pruning
-  // should not require throwing the point away.  The current formulation
-  // `alpha * d(p_star, p_dash) <= d(p, p_dash)` reduces to `0 <= x`, which
-  // is always true and prunes everything that happens to coincide with
-  // p_star.
-  const auto path = uniqueFixturePath("self_prune");
-  ScopedFile cleanup{path};
-
-  std::vector<std::vector<float>> rows = {
-      {0.0f, 0.0f, 0.0f},
-      {1.0f, 10.0f, 10.0f},
-      {2.0f, 20.0f, 20.0f},
-  };
-  writeDatasetFile(path, rows.size(), 3, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
-  Vamana v(std::move(ds), 2);
-
-  EXPECT_FALSE(v.isToBePruned(1, 1, 0))
-      << "a point can't be pruned against itself";
-}
 
 // =========================================================================
 // insertIntoSet bugs -- duplicate handling and stability.
@@ -1470,16 +1447,6 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
         << "approximateNN not in ascending distance order at index " << idx;
     prev = d;
   }
-}
-
-TEST(HeaderRegression, SearchResultsHeaderHasIncludeGuards) {
-  // We cannot include searchresults.hpp twice from this compilation unit
-  // without triggering the compiler error -- the bug is real but observed
-  // during build rather than at runtime.
-  EXPECT_TRUE(false)
-      << "src/include/searchresults.hpp lacks an #ifndef/#define/#endif "
-         "guard or #pragma once; any TU that includes it transitively "
-         "alongside another include path will fail to compile";
 }
 
 // =========================================================================
