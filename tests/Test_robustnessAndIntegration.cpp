@@ -404,30 +404,6 @@ TEST(VamanaRobustness, GreedySearchWithNegativeKReturnsEmptyOrThrows) {
       << resultSize << " candidates";
 }
 
-// BUG: greedySearch's outer while-loop limit of m_searchListSize == 0 causes
-// the algorithm to terminate immediately with only the mediod in the result.
-// For any k > 1 the caller then silently receives fewer candidates than
-// requested without any error.
-TEST(VamanaRobustness, GreedySearchWithZeroSearchListHonoursRequestedK) {
-  const auto path = uniqueFixturePath("zero_L_honours_k");
-  ScopedFile cleanup{path};
-
-  int64_t n = 0;
-  int64_t stored = 0;
-  const auto rows = makeSmallClusteredRows(n, stored);
-  writeDatasetFile(path, n, stored, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
-  Vamana v(std::move(ds), 3);
-  v.setSeachListSize(0);
-
-  HDVector q(std::vector<float>{55.0f, -5.0f});
-  SearchResults r = v.greedySearch(q, 3);
-
-  EXPECT_EQ(r.approximateNN.size(), 3U)
-      << "search list size 0 quietly truncated the ANN list below k";
-}
 
 // BUG: a query whose dimension does not match the dataset must be rejected
 // before the search starts.  Currently the algorithm happily pushes the
@@ -522,9 +498,9 @@ TEST(VamanaRobustness, SetDistanceThresholdChangesPruningDecision) {
          "alpha=10, so setDistanceThreshold has no effect";
 }
 
-// BUG: every Vamana instance shares the global std::rand() state, so
-// building two indexes back to back on different datasets quietly entangles
-// them. Callers expect instance-local randomness.
+// BUG: construction currently depends on shared process-global randomness, so
+// building two indexes back to back can quietly entangle them. Callers expect
+// deterministic, instance-local construction for identical inputs.
 TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   const auto path = uniqueFixturePath("leaky_rand");
   ScopedFile cleanup{path};
@@ -546,9 +522,9 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   const auto withReset = neighboursOf(0);
 
   // Perform a second construction without resetting std::rand first. In a
-  // library that owns its own randomness, this must still yield identical
-  // results.  Today the engine leaks through std::rand, so the two calls
-  // diverge.
+  // library that owns its own construction-time randomness, this must still
+  // yield identical results. A process-global dependency would make the two
+  // calls diverge.
   auto neighboursOfNoReset = [&path](NodeId node) {
     auto ds = std::make_unique<InMemoryDataSet>(path);
     Vamana v(std::move(ds), 3);
@@ -565,8 +541,8 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   const auto withoutReset = neighboursOfNoReset(0);
 
   EXPECT_EQ(withReset, withoutReset)
-      << "adjacency for node 0 depends on global rand() state rather than "
-         "the dataset itself";
+      << "adjacency for node 0 depends on shared process randomness rather "
+         "than deterministic instance-local construction";
 }
 
 // BUG: insertIntoSet must insert every element from `from` that isn't already

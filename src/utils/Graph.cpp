@@ -6,15 +6,6 @@
 #include <stdexcept>
 #include "utils.hpp"
 
-namespace {
-NodeId randomNodeId(NodeId start, NodeId end) {
-  std::random_device device;
-  std::mt19937_64 generator(device());
-  std::uniform_int_distribution<NodeId> distribution(start, end);
-  return distribution(generator);
-}
-}  // namespace
-
 Graph::Graph(NodeId numberOfNodes, uint64_t R) {
   if (numberOfNodes >
       static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
@@ -23,12 +14,14 @@ Graph::Graph(NodeId numberOfNodes, uint64_t R) {
   m_adj_list =
       std::vector<NodeList>(static_cast<size_t>(numberOfNodes), NodeList());
   m_degreeThreshold = static_cast<uint64_t>(R);
+  auto rng =
+      makeDeterministicRng(0x6f72617068536565ULL, {numberOfNodes, R});
   for (NodeId i = 0; i < numberOfNodes; ++i) {
     m_adj_list[static_cast<size_t>(i)] =
-        generateRandomNumbers(m_degreeThreshold, numberOfNodes, i);
+        generateRandomNumbers(m_degreeThreshold, numberOfNodes, rng, i);
   }
   m_mediod = numberOfNodes == 0 ? std::nullopt
-                                : OptionalNodeId(randomNodeId(0, numberOfNodes - 1));
+                                : OptionalNodeId(numberOfNodes / 2);
 }
 
 NodeList &Graph::getOutNeighbours(NodeId node) {

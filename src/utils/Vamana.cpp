@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+
 Vamana::Vamana(std::unique_ptr<DataSet> datset, uint64_t degreeThreshold,
                float distanceThreshold)
     : m_graph([&]() -> Graph {
@@ -24,7 +25,6 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, Graph Graph,
   m_dataSet = std::move(dataSet);
   m_distanceThreshold = distanceThreshold;
   m_searchListSize = 100;
-  buildIndex();
 }
 Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
                float distanceThreshold)
@@ -32,7 +32,6 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
   m_dataSet = std::move(dataSet);
   m_distanceThreshold = distanceThreshold;
   m_searchListSize = 100;
-  buildIndex();
 }
 struct customLess {
     HDVector *qNode;
@@ -155,7 +154,11 @@ void Vamana::prune(NodeId node, NodeList &candidateSet) {
 }
 
 void Vamana::buildIndex() {
-  NodeList sigma = getPermutation(m_dataSet->getN());
+  auto rng = makeDeterministicRng(
+      0x76616d616e61524eULL,
+      {m_dataSet->getN(), m_graph.getDegreeThreshold()},
+      {m_distanceThreshold});
+  NodeList sigma = getPermutation(m_dataSet->getN(), rng);
   for (NodeId &node : sigma) {
     SearchResults greedySearchResult =
         greedySearch(*m_dataSet->getRecordViewByIndex(node).vector, 1);
