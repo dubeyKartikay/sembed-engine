@@ -9,7 +9,7 @@ It provides:
 - Graph persistence so an index can be saved and loaded later.
 - A batch stochastic k-means helper for coarse clustering experiments.
 
-The code is organized more like a library than a finished CLI tool. The main reusable APIs live under [`src/include`](src/include), while the `sembed` executable is a minimal demo target.
+The main reusable APIs live under [`src/include`](src/include), while the `sembed` executable is a minimal demo target.
 
 ## What The Project Does
 
