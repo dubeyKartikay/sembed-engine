@@ -1,73 +1,73 @@
 #include "dataset.hpp"
+
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
+
 #include "utils.hpp"
 
-
-
-InMemoryDataSet::InMemoryDataSet(fs::path path){
-
-  if(!isValidPath(path)){
-      throw std::invalid_argument("The path does not exist");
+InMemoryDataSet::InMemoryDataSet(fs::path path) {
+  if (!isValidFile(path.string())) {
+      throw std::invalid_argument("dataset path must refer to a readable file");
   }
   m_file.open(path, std::ios::binary | std::ios::in);
-  if(!m_file.is_open()){
+  if (!m_file.is_open()) {
       throw std::runtime_error("could not open the file provided");
   }
   int64_t raw_n = 0;
-  int64_t raw_stored_dimentions = 0;
+  int64_t raw_stored_dimensions = 0;
   m_file.read(reinterpret_cast<char*>(&raw_n), sizeof(raw_n));
-  m_file.read(reinterpret_cast<char*>(&raw_stored_dimentions),
-              sizeof(raw_stored_dimentions));
+  m_file.read(reinterpret_cast<char*>(&raw_stored_dimensions),
+              sizeof(raw_stored_dimensions));
+  if (!m_file) {
+      throw std::runtime_error("failed to read dataset header");
+  }
   if (raw_n < 0) {
       throw std::runtime_error("dataset record count must be non-negative");
   }
-  if (raw_stored_dimentions <= 1) {
+  if (raw_stored_dimensions <= 1) {
       throw std::runtime_error("dataset vectors must include at least a record id and some data");
   }
   this->n = static_cast<uint64_t>(raw_n);
-  this->storedDimentions = static_cast<uint64_t>(raw_stored_dimentions);
-  this->dimentions = this->storedDimentions - 1;
-  readDataFromFile(); // reads data to m_data
+  this->storedDimensions = static_cast<uint64_t>(raw_stored_dimensions);
+  this->dimensions = this->storedDimensions - 1;
+  readDataFromFile();
   m_file.close();
-
 }
-void InMemoryDataSet::readDataFromFile(){
-  if (rowsize(this->dimentions) != 0 &&
-      this->getN() > std::numeric_limits<size_t>::max() / rowsize(this->dimentions)) {
+
+void InMemoryDataSet::readDataFromFile() {
+  if (rowsize(dimensions) != 0 &&
+      getN() > std::numeric_limits<size_t>::max() / rowsize(dimensions)) {
     throw std::runtime_error("dataset is too large to load into memory");
   }
 
-  std::vector<char> buf(static_cast<size_t>(this->getN()) * rowsize(this->dimentions), 0);
+  std::vector<char> buffer(static_cast<size_t>(getN()) * rowsize(dimensions), 0);
 
-  m_file.read(reinterpret_cast<char *>(buf.data()),
-              static_cast<std::streamsize>(buf.size()));
+  m_file.read(reinterpret_cast<char *>(buffer.data()),
+              static_cast<std::streamsize>(buffer.size()));
 
   if (!m_file) {
     throw std::runtime_error("failed to read dataset into memory");
   }
-  m_records.reserve(static_cast<size_t>(this->getN()));
-  for (uint64_t i = 0; i < this->getN(); ++i) {
-    std::shared_ptr<HDVector> hdv = std::make_shared<HDVector>(dimentions);
+  m_records.reserve(static_cast<size_t>(getN()));
+  for (uint64_t i = 0; i < getN(); ++i) {
+    std::shared_ptr<HDVector> hdv = std::make_shared<HDVector>(dimensions);
     int64_t id = 0;
-    std::memcpy(&id, buf.data() + i * rowsize(this->dimentions),
+    std::memcpy(&id, buffer.data() + i * rowsize(dimensions),
                 sizeof(int64_t));
     std::memcpy(hdv->getDataPointer(),
-                buf.data() + i * rowsize(this->dimentions) + sizeof(int64_t),
-                this->getDimentions() * sizeof(float));
-    m_records.push_back({id,hdv});
+                buffer.data() + i * rowsize(dimensions) + sizeof(int64_t),
+                getDimensions() * sizeof(float));
+    m_records.push_back({id, hdv});
   }
 }
-RecordView InMemoryDataSet::getRecordViewByIndex(uint64_t index){
-  return this->m_records.at(static_cast<size_t>(index));
+
+RecordView InMemoryDataSet::getRecordViewByIndex(uint64_t index) {
+  return m_records.at(static_cast<size_t>(index));
 }
 
 std::unique_ptr<std::vector<RecordView>>
@@ -91,4 +91,4 @@ InMemoryDataSet::getNHDVectorsFromIndex(uint64_t index, uint64_t n) {
     vec->push_back(record.vector);
   }
   return vec;
- }
+}

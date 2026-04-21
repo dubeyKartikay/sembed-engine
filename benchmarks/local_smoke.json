@@ -1,0 +1,50 @@
+{
+  "runs": [
+    {
+      "name": "gvec-bruteforce",
+      "algorithm": "bruteforce",
+      "dataset": "gvec.bin",
+      "dataset_mode": "memory",
+      "query_count": 32,
+      "k": 10,
+      "seed": 20260421,
+      "exclude_self": true
+    },
+    {
+      "name": "gvec-vamana-r32-l64",
+      "algorithm": "vamana",
+      "dataset": "gvec.bin",
+      "dataset_mode": "memory",
+      "query_count": 32,
+      "k": 10,
+      "seed": 20260421,
+      "exclude_self": true,
+      "degree_threshold": 32,
+      "search_list_size": 64,
+      "distance_threshold": 1.2
+    },
+    {
+      "name": "w2v-bruteforce",
+      "algorithm": "bruteforce",
+      "dataset": "w2v.bin",
+      "dataset_mode": "memory",
+      "query_count": 32,
+      "k": 10,
+      "seed": 20260421,
+      "exclude_self": true
+    },
+    {
+      "name": "w2v-vamana-r32-l64",
+      "algorithm": "vamana",
+      "dataset": "w2v.bin",
+      "dataset_mode": "memory",
+      "query_count": 32,
+      "k": 10,
+      "seed": 20260421,
+      "exclude_self": true,
+      "degree_threshold": 32,
+      "search_list_size": 64,
+      "distance_threshold": 1.2
+    }
+  ]
+}

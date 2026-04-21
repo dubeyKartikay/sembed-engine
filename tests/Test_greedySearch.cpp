@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "test_utils.hpp"
 #include "vamana.hpp"
 #include <cmath>
@@ -135,7 +137,7 @@ TYPED_TEST(DeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
   Vamana vamana(std::move(dataSet), 2);
 
   for (NodeId node = 0; node < static_cast<NodeId>(this->fixture.n); ++node) {
-    const NodeList &neighbours = vamana.m_graph.getOutNeighbours(node);
+    const NodeList &neighbours = vamana.getOutNeighbors(node);
     EXPECT_FALSE(neighbours.empty());
     EXPECT_LE(neighbours.size(), 2U);
 
@@ -162,19 +164,19 @@ TEST(VamanaIndexConstruction, BuildIndexDoesNotDuplicateExistingBacklinks) {
 
   // Seed a reciprocal edge from a late node back to an early node in the fixed
   // permutation order so the duplicate backlink survives the build.
-  vamana.m_graph.setOutNeighbours(0, {2});
-  vamana.m_graph.setOutNeighbours(2, {0});
+  vamana.setOutNeighbors(0, {2});
+  vamana.setOutNeighbors(2, {0});
   for (NodeId node = 1; node < static_cast<NodeId>(fixture.n); ++node) {
     if (node == 2) {
       continue;
     }
-    vamana.m_graph.setOutNeighbours(node, {2});
+    vamana.setOutNeighbors(node, {2});
   }
 
   vamana.buildIndex();
 
   for (NodeId node = 0; node < static_cast<NodeId>(fixture.n); ++node) {
-    const auto &neighbours = vamana.m_graph.getOutNeighbours(node);
+    const auto &neighbours = vamana.getOutNeighbors(node);
     std::unordered_set<NodeId> uniqueNonSelfNeighbours;
     size_t nonSelfCount = 0;
 
@@ -198,7 +200,7 @@ TYPED_TEST(DeterministicANNTest, SelfQueriesReturnExactRecord) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 3);
-  vamana.setSeachListSize(this->fixture.n);
+  vamana.setSearchListSize(this->fixture.n);
 
   for (NodeId row_index = 0;
        row_index < static_cast<NodeId>(this->fixture.rows.size());
@@ -217,7 +219,7 @@ TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) 
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 3);
-  vamana.setSeachListSize(this->fixture.n);
+  vamana.setSearchListSize(this->fixture.n);
 
   const std::vector<float> queryValues = {11.1f, 10.0f};
   HDVector query(queryValues);
@@ -230,9 +232,9 @@ TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) 
   for (NodeId candidate : results.approximateNN) {
     unique.insert(candidate);
 
-    const auto record = vamana.m_dataSet->getRecordViewByIndex(candidate);
-    std::vector<float> payload(record.vector->getDimention(), 0.0f);
-    for (int64_t dim = 0; dim < static_cast<int64_t>(record.vector->getDimention()); ++dim) {
+    const auto record = vamana.getRecordViewByIndex(candidate);
+    std::vector<float> payload(record.vector->getDimension(), 0.0f);
+    for (int64_t dim = 0; dim < static_cast<int64_t>(record.vector->getDimension()); ++dim) {
       payload[dim] = (*record.vector)[dim];
     }
     const float currentDistance = squaredDistance(payload, queryValues);
@@ -247,7 +249,7 @@ TYPED_TEST(DeterministicANNTest,
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 3);
-  vamana.setSeachListSize(this->fixture.n);
+  vamana.setSearchListSize(this->fixture.n);
 
   const std::vector<float> queryValues = {11.1f, 10.0f};
   HDVector query(queryValues);
@@ -265,7 +267,7 @@ TYPED_TEST(LargeDeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
   Vamana vamana(std::move(dataSet), 5);
 
   for (NodeId node = 0; node < static_cast<NodeId>(this->fixture.n); ++node) {
-    const NodeList &neighbours = vamana.m_graph.getOutNeighbours(node);
+    const NodeList &neighbours = vamana.getOutNeighbors(node);
     EXPECT_FALSE(neighbours.empty());
     EXPECT_LE(neighbours.size(), 5U);
 
@@ -282,7 +284,7 @@ TYPED_TEST(LargeDeterministicANNTest, SelfQueriesReturnExactRecordAcrossGraph) {
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 6);
-  vamana.setSeachListSize(this->fixture.n);
+  vamana.setSearchListSize(this->fixture.n);
 
   for (NodeId row_index = 0;
        row_index < static_cast<NodeId>(this->fixture.rows.size());
@@ -302,7 +304,7 @@ TYPED_TEST(LargeDeterministicANNTest,
   std::srand(0);
   auto dataSet = this->makeDataSet();
   Vamana vamana(std::move(dataSet), 6);
-  vamana.setSeachListSize(this->fixture.n);
+  vamana.setSearchListSize(this->fixture.n);
 
   const std::vector<float> queryValues = {203.25f, 0.5f};
   HDVector query(queryValues);
