@@ -15,6 +15,14 @@
 
 namespace testutils {
 
+inline std::filesystem::path testBinaryDir() {
+#ifdef SEMBED_TEST_BINARY_DIR
+  return std::filesystem::path(SEMBED_TEST_BINARY_DIR);
+#else
+  return std::filesystem::current_path();
+#endif
+}
+
 inline std::string sanitizePathComponent(std::string value) {
   for (char &ch : value) {
     const bool is_alnum = (ch >= 'a' && ch <= 'z') ||
@@ -28,7 +36,7 @@ inline std::string sanitizePathComponent(std::string value) {
 }
 
 inline std::filesystem::path fixtureDir() {
-  const auto dir = std::filesystem::current_path() / "build" / "test-fixtures";
+  const auto dir = testBinaryDir() / "test-fixtures";
   std::filesystem::create_directories(dir);
   return dir;
 }
@@ -140,7 +148,7 @@ inline std::vector<NodeList> makeCircularAdjacency(
 }
 
 inline std::filesystem::path embeddingFixturePath(const std::string &name) {
-  return std::filesystem::path("../build") / name;
+  return testBinaryDir() / name;
 }
 
 inline constexpr uint64_t kGloveFixtureRows = 256;

@@ -88,6 +88,9 @@ target_link_libraries(Test PUBLIC
     benchmark_support
     cli_support
 )
+target_compile_definitions(Test PRIVATE
+    SEMBED_TEST_BINARY_DIR="${CMAKE_BINARY_DIR}"
+)
 add_dependencies(Test embedding_fixtures)
 
 include(GoogleTest)
