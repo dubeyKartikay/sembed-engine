@@ -15,6 +15,8 @@ cmake --build build
 ```
 
 Produces the main executable at `build/sembed`.
+The test build also generates deterministic embedding fixtures at `build/gvec.bin`
+and `build/w2v.bin` from the checked-in subsets under `testdata/embeddings/`.
 
 ## Test
 
@@ -40,4 +42,6 @@ The GoogleTest runner is also available directly at `build/Test`.
 
 ## Notes
 
-- The `LoadingBinary.*` tests expect a dataset fixture at `build/gvec.bin`.
+- `build/gvec.bin` is generated automatically from a reduced `glove.6B.50d` subset.
+- `build/w2v.bin` is generated automatically from a reduced GoogleNews word2vec subset.
+- Dataset fixtures use a binary layout of `int64_t record_id` followed by `storedDimentions - 1` floats per record.

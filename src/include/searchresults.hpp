@@ -1,5 +1,5 @@
-#include <vector>
+#include "node_types.hpp"
 struct SearchResults {
-  std::vector<int> approximateNN;
-  std::vector<int> visited;
+  NodeList approximateNN;
+  NodeList visited;
 };

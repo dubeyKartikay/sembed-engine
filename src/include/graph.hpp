@@ -1,40 +1,27 @@
-#include <algorithm>
-#include <memory>
-#include <vector>
 #include <filesystem>
+#include "node_types.hpp"
 #ifndef GRAPH
 #define GRAPH
 class Graph
 {
 private:
-    std::vector<std::vector<int>> m_adj_list;
-    int m_degreeThreshold;
-    int m_mediod;
+    std::vector<NodeList> m_adj_list;
+    uint64_t m_degreeThreshold;
+    OptionalNodeId m_mediod;
 public:
     Graph() = default;
-    
-    Graph(int numberOfNodes,int R);
+    Graph(NodeId numberOfNodes, uint64_t R);
     Graph(std::filesystem::path path);
-/*     ~Graph(); */
-    std::vector<int> & getOutNeighbours(const int& node);
-    void addOutNeighbourUnique(const int &from, const int &to);
-    void setOutNeighbours(const int &node, const std::vector<int> &neighbours);
-    void clearOutNeighbours(const int &node);
-    // void save();
-    int getMediod(){
+    NodeList & getOutNeighbours(NodeId node);
+    void addOutNeighbourUnique(NodeId from, NodeId to);
+    void setOutNeighbours(NodeId node, const NodeList &neighbours);
+    void clearOutNeighbours(NodeId node);
+    OptionalNodeId getMediod() const {
       return m_mediod;
     }
-
-    int getDegreeThreshold(){
+    uint64_t getDegreeThreshold() const {
       return m_degreeThreshold;
     }
+    void save(std::filesystem::path path);
 };
 #endif
-
-// Graph::Graph(/* args */)
-// {
-// }
-
-// Graph::~Graph()
-// {
-// }

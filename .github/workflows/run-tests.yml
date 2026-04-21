@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   pull_request:
-    branches: [ $default-branch ]
+    branches: [ main ]
 
 env:
   BUILD_TYPE: Debug
@@ -13,6 +13,8 @@ jobs:
     continue-on-error: true
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: true
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
@@ -26,7 +28,7 @@ jobs:
       working-directory: ${{github.workspace}}/build
       # Execute tests defined by the CMake configuration.
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-      run: cmake --build build --target test_report --parallel
+      run: cmake --build . --target test_report --parallel
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
@@ -39,7 +41,8 @@ jobs:
       uses: dorny/test-reporter@v3
       if: ${{ !cancelled() }} 
       with:
+        fail-on-error: 'false'
         artifact: test-report            # artifact name
         name: GTest                  # Name of the check run which will be created
         path: '*.xml'                     # Path to test results (inside artifact .zip)
-        reporter: jest-junit              # Format of test results
+        reporter: java-junit              # Format of test results

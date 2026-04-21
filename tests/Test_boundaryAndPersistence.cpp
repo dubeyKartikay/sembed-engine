@@ -4,33 +4,24 @@
 #include "HDVector.hpp"
 #include "dataset.hpp"
 #include "graph.hpp"
+#include "test_utils.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <limits>
 #include <memory>
+#include <random>
 #include <stdexcept>
-#include <string>
-#include <system_error>
 #include <unordered_set>
 #include <vector>
 
 namespace {
 
-std::string sanitizePathComponent(std::string value) {
-  for (char &ch : value) {
-    const bool is_alnum = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                          (ch >= '0' && ch <= '9');
-    if (!is_alnum && ch != '_' && ch != '-') {
-      ch = '_';
-    }
-  }
-  return value;
-}
-
 struct DatasetFixtureData {
-  long long n = 4;
-  long long dimensions = 3;
+  int64_t n = 4;
+  int64_t dimensions = 3;
   std::vector<std::vector<float>> rows = {
       {10.0f, 1.0f, 2.0f},
       {20.0f, 3.0f, 4.0f},
@@ -39,78 +30,6 @@ struct DatasetFixtureData {
   };
 };
 
-struct ScopedPathCleanup {
-  explicit ScopedPathCleanup(std::filesystem::path path) : path(std::move(path)) {}
-
-  ~ScopedPathCleanup() {
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
-  }
-
-  std::filesystem::path path;
-};
-
-std::filesystem::path makeDatasetFile(const std::string &name,
-                                      const DatasetFixtureData &fixture) {
-  const auto fixture_dir =
-      std::filesystem::current_path() / "build" / "test-fixtures";
-  std::filesystem::create_directories(fixture_dir);
-  const auto path = fixture_dir / name;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to create dataset fixture");
-  }
-
-  out.write(reinterpret_cast<const char *>(&fixture.n), sizeof(fixture.n));
-  out.write(reinterpret_cast<const char *>(&fixture.dimensions),
-            sizeof(fixture.dimensions));
-  for (const auto &row : fixture.rows) {
-    out.write(reinterpret_cast<const char *>(row.data()),
-              static_cast<std::streamsize>(row.size() * sizeof(float)));
-  }
-
-  return path;
-}
-
-std::filesystem::path
-makeGraphFile(const std::string &name, int nodeCount, int degreeThreshold,
-              const std::vector<std::vector<int>> &adjacency) {
-  const auto fixture_dir =
-      std::filesystem::current_path() / "build" / "test-fixtures";
-  std::filesystem::create_directories(fixture_dir);
-  const auto path = fixture_dir / name;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to create graph fixture");
-  }
-
-  out.write(reinterpret_cast<const char *>(&nodeCount), sizeof(nodeCount));
-  out.write(reinterpret_cast<const char *>(&degreeThreshold),
-            sizeof(degreeThreshold));
-  for (const auto &neighbours : adjacency) {
-    if (static_cast<int>(neighbours.size()) != degreeThreshold) {
-      throw std::invalid_argument(
-          "graph fixture adjacency does not match degree threshold");
-    }
-    out.write(reinterpret_cast<const char *>(neighbours.data()),
-              static_cast<std::streamsize>(neighbours.size() * sizeof(int)));
-  }
-
-  return path;
-}
-
-std::vector<std::vector<int>> makeCircularAdjacency(int nodeCount,
-                                                    int degreeThreshold) {
-  std::vector<std::vector<int>> adjacency(nodeCount);
-  for (int node = 0; node < nodeCount; ++node) {
-    adjacency[node].reserve(degreeThreshold);
-    for (int offset = 1; offset <= degreeThreshold; ++offset) {
-      adjacency[node].push_back((node + offset) % nodeCount);
-    }
-  }
-  return adjacency;
-}
-
 template <typename DataSetType>
 class DataSetBoundaryTest : public ::testing::Test {
 protected:
@@ -118,20 +37,13 @@ protected:
   std::filesystem::path datasetPath;
 
   void SetUp() override {
-    const auto *suite_name = ::testing::UnitTest::GetInstance()
-                                 ->current_test_info()
-                                 ->test_suite_name();
-    const auto *test_name =
-        ::testing::UnitTest::GetInstance()->current_test_info()->name();
-    datasetPath = makeDatasetFile(
-        std::string("boundary_") + sanitizePathComponent(suite_name) + "_" +
-            sanitizePathComponent(test_name) + ".bin",
-        fixture);
+    datasetPath = testutils::uniqueFixturePath("boundary", "dataset");
+    testutils::writeDatasetFile(datasetPath, fixture.n, fixture.dimensions,
+                                fixture.rows);
   }
 
   void TearDown() override {
-    std::error_code ec;
-    std::filesystem::remove(datasetPath, ec);
+    testutils::ScopedPathCleanup cleanup(datasetPath);
   }
 
   std::unique_ptr<DataSetType> makeDataSet() {
@@ -155,15 +67,12 @@ TYPED_TEST(DataSetBoundaryTest, AllowsEmptyRangesAtDatasetBoundary) {
 }
 
 TYPED_TEST(DataSetBoundaryTest, RejectsMissingDatasetPath) {
-  const auto missingPath =
-      std::filesystem::current_path() / "build" / "test-fixtures" /
-      ("missing_" + sanitizePathComponent(
-                        ::testing::UnitTest::GetInstance()
-                            ->current_test_info()
-                            ->name()) +
-       ".bin");
-  std::error_code ec;
-  std::filesystem::remove(missingPath, ec);
+  const auto missingPath = testutils::namedFixturePath(
+      "missing_" +
+      testutils::sanitizePathComponent(
+          ::testing::UnitTest::GetInstance()->current_test_info()->name()) +
+      ".bin");
+  testutils::ScopedPathCleanup cleanup(missingPath);
 
   EXPECT_THROW(
       {
@@ -188,7 +97,7 @@ TEST(GraphMutation, AddOutNeighbourUniqueSkipsDuplicatesAndClearRemovesEdges) {
   graph.addOutNeighbourUnique(0, 1);
   graph.addOutNeighbourUnique(0, 2);
 
-  EXPECT_EQ(graph.getOutNeighbours(0), std::vector<int>({1, 2}));
+  EXPECT_EQ(graph.getOutNeighbours(0), NodeList({1, 2}));
 
   graph.clearOutNeighbours(0);
   EXPECT_TRUE(graph.getOutNeighbours(0).empty());
@@ -198,16 +107,16 @@ TEST(GraphInitialization,
      UsesRequestedDegreeWhenEnoughUniqueNeighboursExistInDenseGraphs) {
   std::srand(0);
   Graph graph(64, 63);
-  std::vector<int> shortfallNodes;
-  std::vector<int> observedDegrees;
+  NodeList shortfallNodes;
+  std::vector<uint64_t> observedDegrees;
 
-  for (int node = 0; node < 64; ++node) {
+  for (NodeId node = 0; node < 64; ++node) {
     const auto &neighbours = graph.getOutNeighbours(node);
-    std::unordered_set<int> unique(neighbours.begin(), neighbours.end());
+    std::unordered_set<NodeId> unique(neighbours.begin(), neighbours.end());
 
     EXPECT_EQ(unique.size(), neighbours.size());
     EXPECT_EQ(unique.count(node), 0U);
-    observedDegrees.push_back(static_cast<int>(neighbours.size()));
+    observedDegrees.push_back(static_cast<uint64_t>(neighbours.size()));
     if (neighbours.size() != 63U) {
       shortfallNodes.push_back(node);
     }
@@ -220,74 +129,144 @@ TEST(GraphInitialization,
 }
 
 TEST(GraphPersistence, LoadsSavedAdjacencyWithoutCrashing) {
-  const auto path = makeGraphFile("graph_persistence_fixture.bin", 3, 2,
-                                  {{1, 2}, {0, 2}, {0, 1}});
-  ScopedPathCleanup cleanup(path);
-  const std::string graphPath = path.string();
-
-  // This should succeed for a valid serialized graph fixture. It currently
-  // fails because the graph-loading constructor never resizes its adjacency
-  // vectors before reading into them.
-  EXPECT_EXIT(
-      {
-        Graph graph(graphPath);
-        if (graph.getDegreeThreshold() != 2) {
-          std::exit(1);
-        }
-
-        const auto &nodeZero = graph.getOutNeighbours(0);
-        if (nodeZero.size() != 2 || nodeZero[0] != 1 || nodeZero[1] != 2) {
-          std::exit(2);
-        }
-
-        const auto &nodeOne = graph.getOutNeighbours(1);
-        if (nodeOne.size() != 2 || nodeOne[0] != 0 || nodeOne[1] != 2) {
-          std::exit(3);
-        }
-
-        const auto &nodeTwo = graph.getOutNeighbours(2);
-        if (nodeTwo.size() != 2 || nodeTwo[0] != 0 || nodeTwo[1] != 1) {
-          std::exit(4);
-        }
-
-        std::exit(0);
-      },
-      ::testing::ExitedWithCode(0), "");
+  const auto path = testutils::namedFixturePath("graph_persistence_fixture.bin");
+  testutils::ScopedPathCleanup cleanup(path);
+  testutils::writeGraphFile(path, 3, 2, {{1, 2}, {0, 2}, {0, 1}});
+  Graph graph(path);
+  ASSERT_EQ(graph.getDegreeThreshold(), 2U);
+  EXPECT_FALSE(graph.getMediod().has_value());
+  EXPECT_EQ(graph.getOutNeighbours(0), NodeList({1, 2}));
+  EXPECT_EQ(graph.getOutNeighbours(1), NodeList({0, 2}));
+  EXPECT_EQ(graph.getOutNeighbours(2), NodeList({0, 1}));
 }
 
 TEST(GraphPersistence, LoadsLargeSavedAdjacencyWithoutCrashing) {
-  constexpr int kNodeCount = 64;
-  constexpr int kDegreeThreshold = 6;
+  constexpr uint64_t kNodeCount = 64;
+  constexpr uint64_t kDegreeThreshold = 6;
   const auto path =
-      makeGraphFile("graph_persistence_large_fixture.bin", kNodeCount,
-                    kDegreeThreshold,
-                    makeCircularAdjacency(kNodeCount, kDegreeThreshold));
-  ScopedPathCleanup cleanup(path);
-  const std::string graphPath = path.string();
+      testutils::namedFixturePath("graph_persistence_large_fixture.bin");
+  testutils::ScopedPathCleanup cleanup(path);
+  testutils::writeGraphFile(
+      path, kNodeCount, kDegreeThreshold,
+      testutils::makeCircularAdjacency(kNodeCount, kDegreeThreshold));
+  Graph graph(path);
+  ASSERT_EQ(graph.getDegreeThreshold(),
+            static_cast<uint64_t>(kDegreeThreshold));
 
-  EXPECT_EXIT(
-      {
-        Graph graph(graphPath);
-        if (graph.getDegreeThreshold() != kDegreeThreshold) {
-          std::exit(1);
-        }
+  for (NodeId node = 0; node < kNodeCount; ++node) {
+    const auto &neighbours = graph.getOutNeighbours(node);
+    ASSERT_EQ(neighbours.size(), static_cast<size_t>(kDegreeThreshold));
 
-        for (int node = 0; node < kNodeCount; ++node) {
-          const auto &neighbours = graph.getOutNeighbours(node);
-          if (neighbours.size() != kDegreeThreshold) {
-            std::exit(2);
-          }
+    for (NodeId offset = 1; offset <= kDegreeThreshold; ++offset) {
+      EXPECT_EQ(neighbours[offset - 1], (node + offset) % kNodeCount);
+    }
+  }
+}
 
-          for (int offset = 1; offset <= kDegreeThreshold; ++offset) {
-            if (neighbours[offset - 1] != (node + offset) % kNodeCount) {
-              std::exit(3);
-            }
-          }
-        }
+TEST(GraphPersistence, PreservesRandomizedVariableDegreeAdjacency) {
+  constexpr uint64_t kNodeCount = 64;
+  constexpr uint64_t kDegreeThreshold = 12;
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_variable_degree");
+  testutils::ScopedPathCleanup cleanup(path);
 
-        std::exit(0);
-      },
-      ::testing::ExitedWithCode(0), "");
+  std::mt19937 rng(0x5EED1234u);
+  std::uniform_int_distribution<uint64_t> degree_dist(1, kDegreeThreshold);
+  std::vector<NodeList> expected(static_cast<size_t>(kNodeCount));
+  for (NodeId node = 0; node < kNodeCount; ++node) {
+    NodeList candidates;
+    candidates.reserve(kNodeCount - 1);
+    for (NodeId candidate = 0; candidate < kNodeCount; ++candidate) {
+      if (candidate != node) {
+        candidates.push_back(candidate);
+      }
+    }
+    std::shuffle(candidates.begin(), candidates.end(), rng);
+
+    const uint64_t degree = degree_dist(rng);
+    expected[static_cast<size_t>(node)].assign(
+        candidates.begin(),
+        candidates.begin() + static_cast<std::ptrdiff_t>(degree));
+  }
+
+  testutils::writeGraphFile(path, kNodeCount, kDegreeThreshold, expected);
+
+  Graph graph(path);
+  ASSERT_EQ(graph.getDegreeThreshold(), kDegreeThreshold);
+  for (NodeId node = 0; node < kNodeCount; ++node) {
+    EXPECT_EQ(graph.getOutNeighbours(node), expected[static_cast<size_t>(node)])
+        << "loaded adjacency changed for node " << node;
+  }
+}
+
+TEST(GraphPersistence, RejectsAdjacencyDegreeAboveThreshold) {
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_degree_above_threshold");
+  testutils::ScopedPathCleanup cleanup(path);
+
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(out.is_open());
+  const uint64_t node_count = 3;
+  const uint64_t degree_threshold = 2;
+  const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
+  out.write(reinterpret_cast<const char *>(&node_count), sizeof(node_count));
+  out.write(reinterpret_cast<const char *>(&degree_threshold),
+            sizeof(degree_threshold));
+  out.write(reinterpret_cast<const char *>(&no_mediod), sizeof(no_mediod));
+  const uint64_t stored_degree = 3;
+  const NodeList neighbours = {0, 1, 2};
+  for (uint64_t node = 0; node < node_count; ++node) {
+    out.write(reinterpret_cast<const char *>(&stored_degree),
+              sizeof(stored_degree));
+    out.write(reinterpret_cast<const char *>(neighbours.data()),
+              static_cast<std::streamsize>(neighbours.size() *
+                                           sizeof(NodeId)));
+  }
+  out.close();
+  ASSERT_TRUE(out.good());
+
+  EXPECT_THROW((void)Graph(path), std::runtime_error);
+}
+
+TEST(GraphPersistence, RejectsAdjacencyWithOutOfRangeNeighbourId) {
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_invalid_neighbour");
+  testutils::ScopedPathCleanup cleanup(path);
+
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(out.is_open());
+  const uint64_t node_count = 3;
+  const uint64_t degree_threshold = 2;
+  const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
+  out.write(reinterpret_cast<const char *>(&node_count), sizeof(node_count));
+  out.write(reinterpret_cast<const char *>(&degree_threshold),
+            sizeof(degree_threshold));
+  out.write(reinterpret_cast<const char *>(&no_mediod), sizeof(no_mediod));
+
+  const uint64_t stored_degree = 2;
+  const std::vector<NodeList> adjacency = {{1, 2}, {0, 3}, {0, 1}};
+  for (const auto &neighbours : adjacency) {
+    out.write(reinterpret_cast<const char *>(&stored_degree),
+              sizeof(stored_degree));
+    out.write(reinterpret_cast<const char *>(neighbours.data()),
+              static_cast<std::streamsize>(neighbours.size() *
+                                           sizeof(NodeId)));
+  }
+  out.close();
+  ASSERT_TRUE(out.good());
+
+  EXPECT_THROW((void)Graph(path), std::runtime_error);
+}
+
+TEST(GraphPersistence, SaveRejectsAdjacencyDegreeAboveThreshold) {
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_save_degree_overflow");
+  testutils::ScopedPathCleanup cleanup(path);
+
+  Graph graph(4, 2);
+  graph.setOutNeighbours(0, {1, 2, 3});
+
+  EXPECT_THROW(graph.save(path), std::runtime_error);
 }
 
 } // namespace

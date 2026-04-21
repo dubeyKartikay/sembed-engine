@@ -1,11 +1,14 @@
 #include<iostream>
-#include "load_from_binary.hpp"
+#include <cstdint>
 #include <filesystem>
 #include <iterator>
 #include <string>
 #include "dataset.hpp"
+#include "node_types.hpp"
 #include "vamana.hpp"
 int main(int argc, char ** argv){
+    (void)argc;
+    (void)argv;
     // std::cout << argc << argv[0] << '\n';
   std::filesystem::path path("../build/gvec.bin");
   std::unique_ptr<InMemoryDataSet> dataset = std::make_unique<InMemoryDataSet>(path);
@@ -14,20 +17,24 @@ int main(int argc, char ** argv){
   RecordView queryRecord = v.m_dataSet->getRecordViewByIndex(2);
   HDVector hdve = *queryRecord.vector;
   Graph g = v.m_graph;
-  for (int neight : g.getOutNeighbours(2)) {
+  for (NodeId neight : g.getOutNeighbours(2)) {
     std::cout << neight << " ";
   }
   std::cout << std::endl;
-  std::cout << "mediod" << v.m_graph.getMediod() << std::endl;
+  if (const OptionalNodeId mediod = v.m_graph.getMediod()) {
+    std::cout << "mediod" << *mediod << std::endl;
+  } else {
+    std::cout << "mediod none" << std::endl;
+  }
   v.setSeachListSize(125);
   SearchResults s = v.greedySearch( hdve, 1); 
-  for (int ANN : s.approximateNN) {
+  for (NodeId ANN : s.approximateNN) {
     RecordView annRecord = v.m_dataSet->getRecordViewByIndex(ANN);
     std::cout << annRecord.recordId << " "
               << HDVector::distance(hdve, *annRecord.vector) <<  std::endl;
   }
   std::cout<< "VISITDE" << std::endl;
-  for (int vis : s.visited) {
+  for (NodeId vis : s.visited) {
     std::cout << vis << std::endl;
   }  
 }

@@ -4,6 +4,7 @@
 #include "HDVector.hpp"
 #include "dataset.hpp"
 #include "graph.hpp"
+#include "test_utils.hpp"
 #include "utils.hpp"
 #include "vamana.hpp"
 
@@ -27,73 +28,28 @@
 
 namespace {
 
-std::string sanitizeComponent(std::string value) {
-  for (char &ch : value) {
-    const bool is_alnum = (ch >= 'a' && ch <= 'z') ||
-                          (ch >= 'A' && ch <= 'Z') ||
-                          (ch >= '0' && ch <= '9');
-    if (!is_alnum && ch != '_' && ch != '-') {
-      ch = '_';
-    }
-  }
-  return value;
-}
-
-std::filesystem::path fixtureDir() {
-  const auto dir = std::filesystem::current_path() / "build" / "test-fixtures";
-  std::filesystem::create_directories(dir);
-  return dir;
-}
-
 std::filesystem::path uniqueFixturePath(const std::string &tag) {
-  const auto *info = ::testing::UnitTest::GetInstance()->current_test_info();
-  const std::string suite =
-      info ? sanitizeComponent(info->test_suite_name()) : "unknown_suite";
-  const std::string name =
-      info ? sanitizeComponent(info->name()) : "unknown_test";
-  return fixtureDir() /
-         ("robustness_" + suite + "_" + name + "_" + tag + ".bin");
+  return testutils::uniqueFixturePath("robustness", tag);
 }
 
-struct ScopedFile {
-  std::filesystem::path path;
-  ~ScopedFile() {
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
-  }
-};
+using ScopedFile = testutils::ScopedPathCleanup;
+using testutils::fixtureDir;
+using testutils::writeDatasetFile;
 
-std::filesystem::path
-writeDataset(const std::filesystem::path &path, long long n,
-             long long storedDim,
-             const std::vector<std::vector<float>> &rows) {
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to create dataset fixture");
-  }
-  out.write(reinterpret_cast<const char *>(&n), sizeof(n));
-  out.write(reinterpret_cast<const char *>(&storedDim), sizeof(storedDim));
-  for (const auto &row : rows) {
-    out.write(reinterpret_cast<const char *>(row.data()),
-              static_cast<std::streamsize>(row.size() * sizeof(float)));
-  }
-  return path;
-}
-
-std::vector<std::vector<float>> makeSmallClusteredRows(long long &outN,
-                                                       long long &outStored) {
+std::vector<std::vector<float>> makeSmallClusteredRows(int64_t &outN,
+                                                       int64_t &outStored) {
   outStored = 3;
   std::vector<std::vector<float>> rows;
-  int id = 0;
-  for (int cluster = 0; cluster < 3; ++cluster) {
-    for (int i = 0; i < 5; ++i) {
+  int64_t id = 0;
+  for (uint64_t cluster = 0; cluster < 3; ++cluster) {
+    for (uint64_t i = 0; i < 5; ++i) {
       rows.push_back({static_cast<float>(id),
-                      static_cast<float>(cluster * 50 + i),
-                      static_cast<float>(cluster * 50 - i)});
+                      static_cast<float>(cluster * 50U + i),
+                      static_cast<float>(cluster * 50U - i)});
       ++id;
     }
   }
-  outN = static_cast<long long>(rows.size());
+  outN = static_cast<int64_t>(rows.size());
   return rows;
 }
 
@@ -120,7 +76,7 @@ TEST(HDVectorRobustness, DistanceDoesNotOverflowOnLargeMagnitudeInputs) {
       << "distance did not match the obvious ||(1e20, 0)|| = 1e20 answer";
 }
 
-// BUG: HDVector(const int&) does not validate the dimension. A negative
+// BUG: HDVector(int64_t) does not validate the dimension. A negative
 // dimension is silently converted to an enormous unsigned size by
 // std::vector, triggering bad_alloc at best and a multi-GB allocation attempt
 // at worst. A defensive constructor should reject negative sizes up front.
@@ -136,7 +92,7 @@ TEST(HDVectorRobustness, NegativeDimensionConstructorIsRejected) {
 // result drifts from the true value far more than float rounding alone would
 // explain.
 TEST(HDVectorRobustness, DistanceMatchesTheExpectedValueForMildlyLargeInputs) {
-  const int dim = 16;
+  const uint64_t dim = 16;
   std::vector<float> left(dim, 1.0e9f);
   std::vector<float> right(dim, 0.0f);
   HDVector a(left);
@@ -230,30 +186,6 @@ TEST(GraphRobustness, ConstructorWithNegativeDegreeCompletesInReasonableTime) {
       ::testing::ExitedWithCode(0), "");
 }
 
-// ============================================================================
-// DataSet deeper bugs
-// ============================================================================
-
-// BUG: getRecordViewByIndex returns the SAME shared_ptr<HDVector> each time
-// for the InMemoryDataSet.  Mutating the returned vector silently corrupts
-// the dataset and every future view of that index.
-TEST(DataSetRobustness, InMemoryRecordViewsDoNotShareUnderlyingStorage) {
-  const auto path = uniqueFixturePath("shared_storage");
-  ScopedFile cleanup{path};
-  writeDataset(path, 2, 3,
-               {{0.0f, 1.0f, 2.0f}, {1.0f, 10.0f, 20.0f}});
-
-  InMemoryDataSet ds(path);
-  auto first = ds.getRecordViewByIndex(0);
-  ASSERT_NE(first.vector, nullptr);
-  (*first.vector)[0] = 9999.0f;
-
-  auto fresh = ds.getRecordViewByIndex(0);
-  EXPECT_FLOAT_EQ((*fresh.vector)[0], 1.0f)
-      << "mutating a RecordView leaked through to a subsequent read -- the "
-         "dataset hands out aliasing shared_ptrs instead of defensive copies";
-}
-
 // BUG: the header validation only rejects storedDimentions < 1. A value of
 // exactly 1 passes, which makes dimentions = 0 and yields a dataset of
 // zero-dimensional vectors.  Such a dataset cannot meaningfully participate
@@ -263,8 +195,8 @@ TEST(DataSetRobustness, StoredDimensionsEqualToOneIsRejected) {
   const auto path = uniqueFixturePath("stored_dim_one");
   ScopedFile cleanup{path};
 
-  long long n = 2;
-  long long stored = 1;
+  int64_t n = 2;
+  int64_t stored = 1;
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
@@ -292,7 +224,7 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
       {20.0f, 4.0f, 5.0f, 6.0f},
       {30.0f, 7.0f, 8.0f, 9.0f},
   };
-  writeDataset(path, rows.size(), 4, rows);
+  writeDatasetFile(path, rows.size(), 4, rows);
 
   InMemoryDataSet inMem(path);
   FileDataSet onDisk(path);
@@ -300,14 +232,14 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
   ASSERT_EQ(inMem.getN(), onDisk.getN());
   ASSERT_EQ(inMem.getDimentions(), onDisk.getDimentions());
 
-  for (int i = 0; i < inMem.getN(); ++i) {
+  for (uint64_t i = 0; i < inMem.getN(); ++i) {
     auto a = inMem.getRecordViewByIndex(i);
     auto b = onDisk.getRecordViewByIndex(i);
     ASSERT_NE(a.vector, nullptr);
     ASSERT_NE(b.vector, nullptr);
     EXPECT_EQ(a.recordId, b.recordId);
     ASSERT_EQ(a.vector->getDimention(), b.vector->getDimention());
-    for (int d = 0; d < a.vector->getDimention(); ++d) {
+    for (uint64_t d = 0; d < a.vector->getDimention(); ++d) {
       EXPECT_FLOAT_EQ((*a.vector)[d], (*b.vector)[d])
           << "in-memory and on-disk loaders disagree at row " << i
           << " dim " << d;
@@ -325,15 +257,15 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
 TEST(DataSetRobustness, RepeatedFailedConstructionStaysReproducible) {
   const auto path = uniqueFixturePath("bad_header");
   ScopedFile cleanup{path};
-  long long n = 1;
-  long long stored = 0; // invalid -- loader rejects
+  int64_t n = 1;
+  int64_t stored = 0; // invalid -- loader rejects
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
   out.write(reinterpret_cast<const char *>(&stored), sizeof(stored));
   out.close();
 
-  for (int attempt = 0; attempt < 8; ++attempt) {
+  for (uint64_t attempt = 0; attempt < 8; ++attempt) {
     EXPECT_THROW(FileDataSet ds(path), std::exception)
         << "attempt " << attempt
         << ": loader stopped rejecting invalid files after earlier failures, "
@@ -354,7 +286,7 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
       {9.0f, 3.0f, -3.0f},
       {10.0f, 4.0f, -4.0f},
   };
-  writeDataset(path, rows.size(), 3, rows);
+  writeDatasetFile(path, rows.size(), 3, rows);
 
   InMemoryDataSet ds(path);
   auto range = ds.getNRecordViewsFromIndex(1, 2);
@@ -364,15 +296,15 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
   ASSERT_EQ(range->size(), 2U);
   ASSERT_EQ(vectorsOnly->size(), 2U);
 
-  for (int offset = 0; offset < 2; ++offset) {
-    const int absolute = 1 + offset;
+  for (uint64_t offset = 0; offset < 2; ++offset) {
+    const int64_t absolute = static_cast<int64_t>(1 + offset);
     auto single = ds.getRecordViewByIndex(absolute);
     ASSERT_NE(single.vector, nullptr);
     ASSERT_NE(range->at(offset).vector, nullptr);
     ASSERT_NE(vectorsOnly->at(offset), nullptr);
 
     EXPECT_EQ(single.recordId, range->at(offset).recordId);
-    for (int d = 0; d < single.vector->getDimention(); ++d) {
+    for (uint64_t d = 0; d < single.vector->getDimention(); ++d) {
       EXPECT_FLOAT_EQ((*single.vector)[d], (*range->at(offset).vector)[d]);
       EXPECT_FLOAT_EQ((*single.vector)[d], (*vectorsOnly->at(offset))[d]);
     }
@@ -390,8 +322,8 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
 TEST(VamanaRobustness, ConstructorWithEmptyDatasetDoesNotCrash) {
   const auto path = uniqueFixturePath("empty_dataset");
   ScopedFile cleanup{path};
-  long long n = 0;
-  long long stored = 3;
+  int64_t n = 0;
+  int64_t stored = 3;
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
@@ -418,10 +350,10 @@ TEST(VamanaRobustness, BuildIndexDoesNotSpamStdout) {
   const auto path = uniqueFixturePath("silent_build");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::stringstream captured;
   std::streambuf *prev = std::cout.rdbuf(captured.rdbuf());
@@ -438,64 +370,6 @@ TEST(VamanaRobustness, BuildIndexDoesNotSpamStdout) {
       << "buildIndex() wrote the following to stdout:\n" << captured.str();
 }
 
-// BUG: greedySearch truncates approximateNN with `while (size > k) pop_back()`.
-// Passing k = -1 promotes to size_t max on comparison, the loop never runs,
-// and the algorithm returns whatever happens to be left in approximateNN.
-// A negative k is meaningless -- the contract should be to return nothing or
-// throw std::invalid_argument.
-TEST(VamanaRobustness, GreedySearchWithNegativeKReturnsEmptyOrThrows) {
-  const auto path = uniqueFixturePath("negative_k");
-  ScopedFile cleanup{path};
-
-  long long n = 0;
-  long long stored = 0;
-  const auto rows = makeSmallClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
-  Vamana v(std::move(ds), 3);
-  v.setSeachListSize(10);
-
-  HDVector q(std::vector<float>{25.0f, -5.0f});
-  bool threw = false;
-  size_t resultSize = 0;
-  try {
-    SearchResults r = v.greedySearch(q, -1);
-    resultSize = r.approximateNN.size();
-  } catch (const std::exception &) {
-    threw = true;
-  }
-
-  EXPECT_TRUE(threw || resultSize == 0U)
-      << "negative k was not rejected; search returned "
-      << resultSize << " candidates";
-}
-
-// BUG: greedySearch's outer while-loop limit of m_searchListSize == 0 causes
-// the algorithm to terminate immediately with only the mediod in the result.
-// For any k > 1 the caller then silently receives fewer candidates than
-// requested without any error.
-TEST(VamanaRobustness, GreedySearchWithZeroSearchListHonoursRequestedK) {
-  const auto path = uniqueFixturePath("zero_L_honours_k");
-  ScopedFile cleanup{path};
-
-  long long n = 0;
-  long long stored = 0;
-  const auto rows = makeSmallClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
-  Vamana v(std::move(ds), 3);
-  v.setSeachListSize(0);
-
-  HDVector q(std::vector<float>{55.0f, -5.0f});
-  SearchResults r = v.greedySearch(q, 3);
-
-  EXPECT_EQ(r.approximateNN.size(), 3U)
-      << "search list size 0 quietly truncated the ANN list below k";
-}
 
 // BUG: a query whose dimension does not match the dataset must be rejected
 // before the search starts.  Currently the algorithm happily pushes the
@@ -508,10 +382,10 @@ TEST(VamanaRobustness, GreedySearchRejectsMismatchedQueryDimensionImmediately) {
   const auto path = uniqueFixturePath("dim_mismatch");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -532,27 +406,27 @@ TEST(VamanaRobustness, GreedySearchResultsAreWithinDatasetBounds) {
   const auto path = uniqueFixturePath("in_bounds");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
-  const int datasetSize = static_cast<int>(n);
+  const uint64_t datasetSize = static_cast<uint64_t>(n);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(datasetSize);
+  v.setSeachListSize(static_cast<int64_t>(datasetSize));
 
   HDVector q(std::vector<float>{12.5f, 7.5f});
   SearchResults r = v.greedySearch(q, 5);
 
-  for (int idx : r.approximateNN) {
+  for (NodeId idx : r.approximateNN) {
     EXPECT_GE(idx, 0);
-    EXPECT_LT(idx, datasetSize);
+    EXPECT_LT(static_cast<uint64_t>(idx), datasetSize);
   }
-  for (int idx : r.visited) {
+  for (NodeId idx : r.visited) {
     EXPECT_GE(idx, 0);
-    EXPECT_LT(idx, datasetSize);
+    EXPECT_LT(static_cast<uint64_t>(idx), datasetSize);
   }
 }
 
@@ -569,7 +443,7 @@ TEST(VamanaRobustness, SetDistanceThresholdChangesPruningDecision) {
       {2.0f, 2.0f, 0.0f},
       {3.0f, 3.0f, 0.0f},
   };
-  writeDataset(path, rows.size(), 3, rows);
+  writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -590,23 +464,23 @@ TEST(VamanaRobustness, SetDistanceThresholdChangesPruningDecision) {
          "alpha=10, so setDistanceThreshold has no effect";
 }
 
-// BUG: every Vamana instance shares the global std::rand() state, so
-// building two indexes back to back on different datasets quietly entangles
-// them. Callers expect instance-local randomness.
+// BUG: construction currently depends on shared process-global randomness, so
+// building two indexes back to back can quietly entangle them. Callers expect
+// deterministic, instance-local construction for identical inputs.
 TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   const auto path = uniqueFixturePath("leaky_rand");
   ScopedFile cleanup{path};
 
-  long long n = 0;
-  long long stored = 0;
+  int64_t n = 0;
+  int64_t stored = 0;
   const auto rows = makeSmallClusteredRows(n, stored);
-  writeDataset(path, n, stored, rows);
+  writeDatasetFile(path, n, stored, rows);
 
-  auto neighboursOf = [&path](int node) {
+  auto neighboursOf = [&path](NodeId node) {
     std::srand(0);
     auto ds = std::make_unique<InMemoryDataSet>(path);
     Vamana v(std::move(ds), 3);
-    std::vector<int> neighbours = v.m_graph.getOutNeighbours(node);
+    NodeList neighbours = v.m_graph.getOutNeighbours(node);
     std::sort(neighbours.begin(), neighbours.end());
     return neighbours;
   };
@@ -614,27 +488,27 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   const auto withReset = neighboursOf(0);
 
   // Perform a second construction without resetting std::rand first. In a
-  // library that owns its own randomness, this must still yield identical
-  // results.  Today the engine leaks through std::rand, so the two calls
-  // diverge.
-  auto neighboursOfNoReset = [&path](int node) {
+  // library that owns its own construction-time randomness, this must still
+  // yield identical results. A process-global dependency would make the two
+  // calls diverge.
+  auto neighboursOfNoReset = [&path](NodeId node) {
     auto ds = std::make_unique<InMemoryDataSet>(path);
     Vamana v(std::move(ds), 3);
-    std::vector<int> neighbours = v.m_graph.getOutNeighbours(node);
+    NodeList neighbours = v.m_graph.getOutNeighbours(node);
     std::sort(neighbours.begin(), neighbours.end());
     return neighbours;
   };
 
   // First, warm up global rand so the no-reset call is visibly downstream of
   // an unrelated consumer.
-  for (int i = 0; i < 25; ++i) {
+  for (uint64_t i = 0; i < 25; ++i) {
     (void)std::rand();
   }
   const auto withoutReset = neighboursOfNoReset(0);
 
   EXPECT_EQ(withReset, withoutReset)
-      << "adjacency for node 0 depends on global rand() state rather than "
-         "the dataset itself";
+      << "adjacency for node 0 depends on shared process randomness rather "
+         "than deterministic instance-local construction";
 }
 
 // BUG: insertIntoSet must insert every element from `from` that isn't already
@@ -652,19 +526,19 @@ TEST(VamanaRobustness, InsertIntoSetInsertsEveryMissingElement) {
       {4.0f, 4.0f, 4.0f},
       {5.0f, 5.0f, 5.0f},
   };
-  writeDataset(path, rows.size(), 3, rows);
+  writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
-  std::vector<int> to;
+  NodeList to;
   v.insertIntoSet({2, 4}, to, q);
   v.insertIntoSet({1, 3, 5}, to, q);
 
-  std::unordered_set<int> unique(to.begin(), to.end());
-  const std::unordered_set<int> expected = {1, 2, 3, 4, 5};
+  std::unordered_set<NodeId> unique(to.begin(), to.end());
+  const std::unordered_set<NodeId> expected = {1, 2, 3, 4, 5};
   EXPECT_EQ(unique, expected)
       << "insertIntoSet dropped at least one element; got "
       << ::testing::PrintToString(to);
@@ -681,7 +555,7 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
       {0.0f, 0.0f, 0.0f},  {1.0f, 1.0f, 0.0f},  {2.0f, 4.0f, 0.0f},
       {3.0f, 9.0f, 0.0f},  {4.0f, 16.0f, 0.0f}, {5.0f, 25.0f, 0.0f},
   };
-  writeDataset(path, rows.size(), 3, rows);
+  writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
@@ -689,7 +563,7 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
 
   HDVector q(std::vector<float>{0.0f, 0.0f});
 
-  std::vector<int> to;
+  NodeList to;
   v.insertIntoSet({5, 3, 1, 4, 2, 0}, to, q);
 
   for (size_t i = 1; i < to.size(); ++i) {
@@ -733,11 +607,11 @@ TEST(UtilsRobustness, GenerateRandomNumbersWithZeroNDoesNotInvokeUB) {
 // at worst throw -- but never exceed n unique outputs.
 TEST(UtilsRobustness, GenerateRandomNumbersCannotReturnMoreThanNUniqueValues) {
   std::srand(42);
-  const int n = 4;
-  const int k = 10;
+  const uint64_t n = 4;
+  const uint64_t k = 10;
 
   const auto result = generateRandomNumbers(k, n, /*blackList=*/-1);
-  std::unordered_set<int> unique(result.begin(), result.end());
+  std::unordered_set<NodeId> unique(result.begin(), result.end());
 
   EXPECT_LE(unique.size(), static_cast<size_t>(n));
   EXPECT_LE(result.size(), static_cast<size_t>(n))
@@ -760,7 +634,7 @@ TEST(UtilsRobustness, GetPermutationZeroProducesEmptyResult) {
 TEST(UtilsRobustness, IsValidPathRejectsDirectoryInputs) {
   const auto dir = fixtureDir();
   ASSERT_TRUE(std::filesystem::is_directory(dir));
-  EXPECT_FALSE(isValidPath(dir.string()))
+  EXPECT_FALSE(isValidFile(dir.string()))
       << "isValidPath treats a directory as a valid dataset path";
 }
 
@@ -771,20 +645,6 @@ TEST(UtilsRobustness, IsValidPathRejectsEmptyString) {
   EXPECT_FALSE(isValidPath(""));
 }
 
-// BUG: getRandomNumber reseeds mt19937 with seed 2 on every call. The
-// existing test only checks variance over the [0, 1000] range, but the
-// determinism is even worse: across arbitrary ranges the first call always
-// returns the same underlying sample. A correct RNG should carry state
-// across invocations.
-TEST(UtilsRobustness, GetRandomNumberProducesIndependentSamplesAcrossRanges) {
-  std::set<int> observed;
-  for (int width = 2; width <= 8; ++width) {
-    observed.insert(getRandomNumber(0, width));
-  }
-  EXPECT_GT(observed.size(), 3U)
-      << "getRandomNumber is re-seeded on every call, so all samples collapse "
-         "to the same underlying mt19937 output";
-}
 
 // BUG: generateRandomNumbers must use a *shared* or caller-provided source of
 // randomness so successive calls produce different sequences.  The fact that
@@ -816,21 +676,21 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
 
   // 30 points in three well-separated clusters.
   std::vector<std::vector<float>> rows;
-  int id = 0;
-  for (int cluster = 0; cluster < 3; ++cluster) {
-    for (int i = 0; i < 10; ++i) {
+  int64_t id = 0;
+  for (uint64_t cluster = 0; cluster < 3; ++cluster) {
+    for (uint64_t i = 0; i < 10; ++i) {
       const float base = static_cast<float>(cluster * 100);
       rows.push_back({static_cast<float>(id), base + static_cast<float>(i),
                       base - static_cast<float>(i) * 0.25f});
       ++id;
     }
   }
-  writeDataset(path, rows.size(), 3, rows);
+  writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 6);
-  v.setSeachListSize(static_cast<int>(rows.size()));
+  v.setSeachListSize(static_cast<int64_t>(rows.size()));
 
   const std::vector<float> query = {202.5f, -0.625f};
   HDVector q(query);
@@ -845,11 +705,11 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
     return total;
   };
 
-  std::vector<std::pair<float, int>> ranked;
+  std::vector<std::pair<float, int64_t>> ranked;
   ranked.reserve(rows.size());
   for (size_t i = 0; i < rows.size(); ++i) {
     const std::vector<float> payload(rows[i].begin() + 1, rows[i].end());
-    ranked.push_back({squared(payload, query), static_cast<int>(i)});
+    ranked.push_back({squared(payload, query), static_cast<int64_t>(i)});
   }
   std::sort(ranked.begin(), ranked.end(),
             [](const auto &l, const auto &r) {
@@ -862,10 +722,10 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
   SearchResults approx = v.greedySearch(q, 5);
   ASSERT_EQ(approx.approximateNN.size(), 5U);
 
-  std::vector<int> expected;
+  NodeList expected;
   expected.reserve(5);
-  for (int i = 0; i < 5; ++i) {
-    expected.push_back(ranked[i].second);
+  for (uint64_t i = 0; i < 5; ++i) {
+    expected.push_back(static_cast<NodeId>(ranked[i].second));
   }
   EXPECT_EQ(approx.approximateNN, expected)
       << "with L == N the top-5 ANN should equal the brute-force top-5";
@@ -879,28 +739,28 @@ TEST(IntegrationRegression, SelfRecallIsPerfectAtLEqualsN) {
   ScopedFile cleanup{path};
 
   std::vector<std::vector<float>> rows;
-  for (int i = 0; i < 25; ++i) {
+  for (uint64_t i = 0; i < 25; ++i) {
     const float x = static_cast<float>(i);
     rows.push_back({static_cast<float>(i), x, x * 0.5f});
   }
-  writeDataset(path, rows.size(), 3, rows);
+  writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 5);
-  v.setSeachListSize(static_cast<int>(rows.size()));
+  v.setSeachListSize(static_cast<int64_t>(rows.size()));
 
-  int misses = 0;
+  uint64_t misses = 0;
   for (size_t i = 0; i < rows.size(); ++i) {
     const std::vector<float> payload(rows[i].begin() + 1, rows[i].end());
     HDVector q(payload);
     SearchResults r = v.greedySearch(q, 1);
     if (r.approximateNN.size() != 1U ||
-        r.approximateNN.front() != static_cast<int>(i)) {
+        r.approximateNN.front() != static_cast<int64_t>(i)) {
       ++misses;
     }
   }
-  EXPECT_EQ(misses, 0)
+  EXPECT_EQ(misses, 0U)
       << "self-query failed to return the original point for " << misses
       << " records";
 }

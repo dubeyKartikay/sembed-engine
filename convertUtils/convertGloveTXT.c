@@ -1,12 +1,12 @@
-#include <bits/types/FILE.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 int main(int argc , char ** argv){
   char input_file[100];
   char output_file[100];
-  if(argc < 5){
+  if(argc < 6){
     printf("USAGE ./convertGloveTXT <PATH_TO_INPUT_FILE> <PATH_TO_OUTPUT_VEC_FILE> <PATH_TO_OUTPUT_WORD_FILE> <N> <DIMENTIONS>");
     return -1;
   }
@@ -32,19 +32,19 @@ int main(int argc , char ** argv){
   long long int tot_dim = dimentions + 1;
   printf("%lld",tot_dim);
   fwrite(&tot_dim, sizeof(tot_dim), 1, o);
-  float words = 0;
+  int64_t words = 0;
   
 
   while (words < n) {
-    float vector[dimentions + 1];
+    float vector[dimentions];
     char word[100];
     fscanf(p, "%s",word);
     
-    vector[0] = words;
-    for (int i = 1; i < dimentions + 1; i++) {
+    for (int i = 0; i < dimentions; i++) {
       fscanf(p,"%f",vector+i);
     }
-    fwrite(vector, sizeof(float), dimentions + 1, o);
+    fwrite(&words, sizeof(words), 1, o);
+    fwrite(vector, sizeof(float), dimentions, o);
     words++;
   }
   fclose(p);
