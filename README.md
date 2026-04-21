@@ -281,9 +281,9 @@ This implementation follows the broad structure of a Vamana-style navigable grap
 
 All search and pruning decisions use Euclidean distance:
 
-\[
+$$
 d(x, y) = \sqrt{\sum_{i=1}^{D}(x_i - y_i)^2}
-\]
+$$
 
 where:
 
@@ -334,9 +334,9 @@ When the algorithm considers a candidate neighbor `p'` while building the out-ne
 
 `p'` is pruned if:
 
-\[
+$$
 \alpha \cdot d(p^\*, p') \le d(p, p')
-\]
+$$
 
 where:
 
@@ -365,15 +365,14 @@ The clustering helper is a simple iterative batch procedure:
 
 Mathematically, the mean for cluster `C` is:
 
-\[
+$$
 \mu_C = \frac{1}{|C|}\sum_{x \in C} x
-\]
+$$
 
 But the implementation does not keep `\mu_C` directly as the center. It selects:
-
-\[
+$$
 c_C = \arg\min_{x \in C} d(x, \mu_C)
-\]
+$$
 
 That makes the center an actual dataset point rather than a synthetic floating-point centroid.
 
