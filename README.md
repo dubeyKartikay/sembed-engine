@@ -47,6 +47,7 @@ This build produces:
 - `build/libbatch_stocastic_kmeans.a`
 - `build/Test`
 - `build/sembed`
+- `build/sembed_benchmark`
 
 The build also generates deterministic embedding fixtures used by tests:
 
@@ -82,6 +83,62 @@ That writes:
 - `build/test-report/junit.xml`
 
 As of the current CMake configuration, there is a `test_report` target, but there are no `test_html_report` or `test_html_report_open` targets.
+
+## Benchmark
+
+The repository now includes a small benchmark harness for Phase 0 roadmap work:
+
+- `build/sembed_benchmark`: benchmarks one algorithm/configuration and emits JSON.
+- `scripts/run_benchmarks.py`: runs a checked-in profile and aggregates results.
+- `benchmarks/local_smoke.json`: the default local profile over the deterministic fixture datasets.
+
+Run one benchmark directly:
+
+```sh
+./build/sembed_benchmark \
+  --algorithm vamana \
+  --dataset ./build/gvec.bin \
+  --dataset-mode memory \
+  --query-count 32 \
+  --k 10 \
+  --degree-threshold 32 \
+  --search-list-size 64 \
+  --distance-threshold 1.2 \
+  --artifact-dir ./build/benchmark-report/manual
+```
+
+Run the checked-in smoke profile:
+
+```sh
+cmake --build build --target benchmark_smoke
+```
+
+That writes:
+
+- `build/benchmark-report/local-smoke.json`
+- `build/benchmark-report/artifacts/`
+
+The JSON report tracks the current Phase 0 metrics the engine can support today:
+
+- `recall_at_k`
+- `latency_p50_ms`
+- `latency_p95_ms`
+- `queries_per_second`
+- `build_time_seconds`
+- `ram_footprint_bytes`
+- `ssd_footprint_bytes`
+- `restart_time_seconds`
+
+It also reports dataset load time and average visited nodes. `insert_throughput_vectors_per_second` is currently `null` because the engine does not expose an insert API yet.
+
+The smoke profile compares:
+
+- brute-force baseline
+- Vamana baseline
+
+against both `gvec.bin` and `w2v.bin`.
+
+If endpoint protection kills standalone binaries such as `sembed_benchmark`, the in-process `BenchmarkHarnessRuntime.*` GoogleTests still validate the harness logic, but the `benchmark_smoke` target will need the benchmark binary to be allowlisted before it can complete successfully.
 
 ## Public API Overview
 
@@ -394,13 +451,9 @@ Then include the public headers from `src/include`.
 ## Roadmap Toward Billion-Scale Search
 
 This project is currently a small single-node ANN engine. To scale toward
-billion-point workloads and compare credibly with production vector databases,
-the work should proceed in phases rather than as a single rewrite.
+billion-point workloads here we have a roadmap:
 
 ### Phase 0: Establish a Benchmark Harness
-
-Before large architectural changes, the project needs a repeatable benchmark
-setup.
 
 - Integrate [ANN-Benchmarks](https://ann-benchmarks.com/) for small and
   medium-scale evaluation.

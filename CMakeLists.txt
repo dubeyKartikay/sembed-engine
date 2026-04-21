@@ -20,15 +20,22 @@ add_library(utils STATIC
     src/utils/Graph.cpp
 )
 add_library(batch_stocastic_kmeans STATIC src/load/batch_stocastic_kmeans.cpp)
+add_library(benchmark_support STATIC src/bench/benchmark_harness.cpp)
 
 target_include_directories(utils PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(batch_stocastic_kmeans PUBLIC ${PROJECT_INCLUDE_DIR})
+target_include_directories(benchmark_support PUBLIC ${PROJECT_INCLUDE_DIR})
 
 target_link_libraries(batch_stocastic_kmeans PUBLIC utils)
+target_link_libraries(benchmark_support PUBLIC utils)
 
 add_executable(sembed src/main/main.cpp)
 target_include_directories(sembed PUBLIC ${PROJECT_INCLUDE_DIR})
 target_link_libraries(sembed PUBLIC utils)
+
+add_executable(sembed_benchmark src/bench/main.cpp)
+target_include_directories(sembed_benchmark PUBLIC ${PROJECT_INCLUDE_DIR})
+target_link_libraries(sembed_benchmark PUBLIC benchmark_support)
 
 enable_testing()
 
@@ -61,8 +68,9 @@ add_executable(Test
     tests/Test_randomUtilsAndSearch.cpp
     tests/Test_componentRegressions.cpp
     tests/Test_robustnessAndIntegration.cpp
+    tests/Test_benchmarkHarness.cpp
 )
-target_link_libraries(Test PUBLIC GTest::gtest_main utils batch_stocastic_kmeans)
+target_link_libraries(Test PUBLIC GTest::gtest_main utils batch_stocastic_kmeans benchmark_support)
 add_dependencies(Test embedding_fixtures)
 
 include(GoogleTest)
@@ -83,3 +91,16 @@ function(add_report_target name comment)
 endfunction()
 
 add_report_target(test_report "Running tests and generating HTML report")
+
+add_custom_target(benchmark_smoke
+    DEPENDS sembed_benchmark embedding_fixtures
+    COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/scripts/run_benchmarks.py"
+            --benchmark-binary "$<TARGET_FILE:sembed_benchmark>"
+            --config "${CMAKE_SOURCE_DIR}/benchmarks/local_smoke.json"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --output "${CMAKE_BINARY_DIR}/benchmark-report/local-smoke.json"
+    COMMENT "Running the local benchmark smoke profile"
+    USES_TERMINAL
+    VERBATIM
+)
