@@ -20,18 +20,15 @@ add_library(utils STATIC
     src/utils/Graph.cpp
 )
 add_library(batch_stocastic_kmeans STATIC src/load/batch_stocastic_kmeans.cpp)
-add_library(load_from_binary STATIC src/load/load_from_binary.cpp)
 
 target_include_directories(utils PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(batch_stocastic_kmeans PUBLIC ${PROJECT_INCLUDE_DIR})
-target_include_directories(load_from_binary PUBLIC ${PROJECT_INCLUDE_DIR})
 
 target_link_libraries(batch_stocastic_kmeans PUBLIC utils)
-target_link_libraries(load_from_binary PUBLIC batch_stocastic_kmeans)
 
 add_executable(sembed src/main/main.cpp)
 target_include_directories(sembed PUBLIC ${PROJECT_INCLUDE_DIR})
-target_link_libraries(sembed PUBLIC load_from_binary)
+target_link_libraries(sembed PUBLIC utils)
 
 enable_testing()
 
@@ -65,7 +62,7 @@ add_executable(Test
     tests/Test_componentRegressions.cpp
     tests/Test_robustnessAndIntegration.cpp
 )
-target_link_libraries(Test PUBLIC GTest::gtest_main utils load_from_binary)
+target_link_libraries(Test PUBLIC GTest::gtest_main utils batch_stocastic_kmeans)
 add_dependencies(Test embedding_fixtures)
 
 include(GoogleTest)

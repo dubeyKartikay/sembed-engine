@@ -1,11 +1,7 @@
 #include "vamana.hpp"
 #include <algorithm>
-#include <bitset>
 #include <filesystem>
-#include <iostream>
 #include <memory>
-#include <ostream>
-#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -52,9 +48,9 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
   m_searchListSize = 100;
 }
 struct customLess {
-    HDVector *qNode;
+    const HDVector *qNode;
     Vamana *vamana;
-    customLess(HDVector *qNode, Vamana *vamana)
+    customLess(const HDVector *qNode, Vamana *vamana)
         : qNode(qNode), vamana(vamana){};
     bool operator()(NodeId l, NodeId r) {
       const float leftDistance =
@@ -71,7 +67,7 @@ struct customLess {
   };
 void Vamana::insertIntoSet(const NodeList &from,
                            NodeList &to,
-                           HDVector &comparison_vec) {
+                           const HDVector &comparison_vec) {
   for (const NodeId outNode : from) {
 
     auto pos = std::lower_bound(to.begin(), to.end(), outNode,
@@ -86,7 +82,7 @@ void Vamana::insertIntoSet(const NodeList &from,
   }
 }
 
-SearchResults Vamana::greedySearch(HDVector &node, uint64_t k) {
+SearchResults Vamana::greedySearch(const HDVector &node, uint64_t k) {
   SearchResults searchResult;
   const OptionalNodeId mediod = m_graph.getMediod();
   if (!mediod) {
@@ -189,6 +185,16 @@ void Vamana::buildIndex() {
       }
     }
   }
+}
+
+std::unique_ptr<NodeList> Vamana::search(NodeId queryNode, uint64_t k) {
+  const HDVector & queryVector = *m_dataSet->getRecordViewByIndex(queryNode).vector;
+  SearchResults searchResult = greedySearch(queryVector, k);
+  return std::make_unique<NodeList>(searchResult.approximateNN);
+}
+
+void Vamana::save(std::filesystem::path path) {
+  m_graph.save(path);
 }
 
 // BIG TODOS

@@ -11,7 +11,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-#include "node_types.hpp"
+#include "graph.hpp"
 
 namespace testutils {
 
@@ -61,6 +61,11 @@ struct ScopedPathCleanup {
   std::filesystem::path path;
 };
 
+inline std::filesystem::path writeGraphFile(
+    const std::filesystem::path &path, uint64_t nodes,
+    uint64_t degree_threshold, uint64_t mediod,
+    const std::vector<NodeList> &adjacency);
+
 inline std::filesystem::path writeDatasetFile(
     const std::filesystem::path &path, int64_t n, int64_t stored_dimensions,
     const std::vector<std::vector<float>> &rows) {
@@ -87,40 +92,37 @@ inline std::filesystem::path writeDatasetFile(
 inline std::filesystem::path writeGraphFile(
     const std::filesystem::path &path, uint64_t nodes, uint64_t degree_threshold,
     const std::vector<NodeList> &adjacency) {
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to open graph fixture for writing");
-  }
-  out.write(reinterpret_cast<const char *>(&nodes), sizeof(nodes));
-  out.write(reinterpret_cast<const char *>(&degree_threshold),
-            sizeof(degree_threshold));
   const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
-  out.write(reinterpret_cast<const char *>(&no_mediod), sizeof(no_mediod));
-  for (const auto &neighbours : adjacency) {
-    if (static_cast<uint64_t>(neighbours.size()) != degree_threshold) {
-      throw std::invalid_argument(
-          "graph fixture adjacency does not match degree threshold");
-    }
-    out.write(reinterpret_cast<const char *>(neighbours.data()),
-              static_cast<std::streamsize>(neighbours.size() * sizeof(NodeId)));
-  }
-  return path;
+  return writeGraphFile(path, nodes, degree_threshold, no_mediod, adjacency);
 }
 
 inline std::filesystem::path writeGraphFile(
     const std::filesystem::path &path, uint64_t nodes, uint64_t degree_threshold,
     uint64_t mediod, const std::vector<NodeList> &adjacency) {
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to open graph fixture for writing");
+  if (adjacency.size() != static_cast<size_t>(nodes)) {
+    throw std::invalid_argument(
+        "graph fixture adjacency size does not match node count");
   }
-  out.write(reinterpret_cast<const char *>(&nodes), sizeof(nodes));
-  out.write(reinterpret_cast<const char *>(&degree_threshold),
-            sizeof(degree_threshold));
-  out.write(reinterpret_cast<const char *>(&mediod), sizeof(mediod));
-  for (const auto &neighbours : adjacency) {
-    out.write(reinterpret_cast<const char *>(neighbours.data()),
-              static_cast<std::streamsize>(neighbours.size() * sizeof(NodeId)));
+  Graph graph(nodes, degree_threshold);
+  for (uint64_t node = 0; node < nodes; ++node) {
+    const auto &neighbours = adjacency[static_cast<size_t>(node)];
+    if (static_cast<uint64_t>(neighbours.size()) > degree_threshold) {
+      throw std::invalid_argument(
+          "graph fixture adjacency exceeds degree threshold");
+    }
+    graph.setOutNeighbours(node, neighbours);
+  }
+
+  graph.save(path);
+
+  std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+  if (!file.is_open()) {
+    throw std::runtime_error("failed to reopen graph fixture for patching");
+  }
+  file.seekp(static_cast<std::streamoff>(sizeof(uint64_t) * 2), std::ios::beg);
+  file.write(reinterpret_cast<const char *>(&mediod), sizeof(mediod));
+  if (!file) {
+    throw std::runtime_error("failed to patch graph fixture mediod");
   }
   return path;
 }

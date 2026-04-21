@@ -1,6 +1,5 @@
 #include<iostream>
 #include <cstdint>
-#include "load_from_binary.hpp"
 #include <filesystem>
 #include <iterator>
 #include <string>

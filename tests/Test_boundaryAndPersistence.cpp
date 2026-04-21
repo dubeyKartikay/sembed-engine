@@ -5,10 +5,14 @@
 #include "dataset.hpp"
 #include "graph.hpp"
 #include "test_utils.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
+#include <limits>
 #include <memory>
+#include <random>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
@@ -157,6 +161,112 @@ TEST(GraphPersistence, LoadsLargeSavedAdjacencyWithoutCrashing) {
       EXPECT_EQ(neighbours[offset - 1], (node + offset) % kNodeCount);
     }
   }
+}
+
+TEST(GraphPersistence, PreservesRandomizedVariableDegreeAdjacency) {
+  constexpr uint64_t kNodeCount = 64;
+  constexpr uint64_t kDegreeThreshold = 12;
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_variable_degree");
+  testutils::ScopedPathCleanup cleanup(path);
+
+  std::mt19937 rng(0x5EED1234u);
+  std::uniform_int_distribution<uint64_t> degree_dist(1, kDegreeThreshold);
+  std::vector<NodeList> expected(static_cast<size_t>(kNodeCount));
+  for (NodeId node = 0; node < kNodeCount; ++node) {
+    NodeList candidates;
+    candidates.reserve(kNodeCount - 1);
+    for (NodeId candidate = 0; candidate < kNodeCount; ++candidate) {
+      if (candidate != node) {
+        candidates.push_back(candidate);
+      }
+    }
+    std::shuffle(candidates.begin(), candidates.end(), rng);
+
+    const uint64_t degree = degree_dist(rng);
+    expected[static_cast<size_t>(node)].assign(
+        candidates.begin(),
+        candidates.begin() + static_cast<std::ptrdiff_t>(degree));
+  }
+
+  testutils::writeGraphFile(path, kNodeCount, kDegreeThreshold, expected);
+
+  Graph graph(path);
+  ASSERT_EQ(graph.getDegreeThreshold(), kDegreeThreshold);
+  for (NodeId node = 0; node < kNodeCount; ++node) {
+    EXPECT_EQ(graph.getOutNeighbours(node), expected[static_cast<size_t>(node)])
+        << "loaded adjacency changed for node " << node;
+  }
+}
+
+TEST(GraphPersistence, RejectsAdjacencyDegreeAboveThreshold) {
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_degree_above_threshold");
+  testutils::ScopedPathCleanup cleanup(path);
+
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(out.is_open());
+  const uint64_t node_count = 3;
+  const uint64_t degree_threshold = 2;
+  const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
+  out.write(reinterpret_cast<const char *>(&node_count), sizeof(node_count));
+  out.write(reinterpret_cast<const char *>(&degree_threshold),
+            sizeof(degree_threshold));
+  out.write(reinterpret_cast<const char *>(&no_mediod), sizeof(no_mediod));
+  const uint64_t stored_degree = 3;
+  const NodeList neighbours = {0, 1, 2};
+  for (uint64_t node = 0; node < node_count; ++node) {
+    out.write(reinterpret_cast<const char *>(&stored_degree),
+              sizeof(stored_degree));
+    out.write(reinterpret_cast<const char *>(neighbours.data()),
+              static_cast<std::streamsize>(neighbours.size() *
+                                           sizeof(NodeId)));
+  }
+  out.close();
+  ASSERT_TRUE(out.good());
+
+  EXPECT_THROW((void)Graph(path), std::runtime_error);
+}
+
+TEST(GraphPersistence, RejectsAdjacencyWithOutOfRangeNeighbourId) {
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_invalid_neighbour");
+  testutils::ScopedPathCleanup cleanup(path);
+
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(out.is_open());
+  const uint64_t node_count = 3;
+  const uint64_t degree_threshold = 2;
+  const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
+  out.write(reinterpret_cast<const char *>(&node_count), sizeof(node_count));
+  out.write(reinterpret_cast<const char *>(&degree_threshold),
+            sizeof(degree_threshold));
+  out.write(reinterpret_cast<const char *>(&no_mediod), sizeof(no_mediod));
+
+  const uint64_t stored_degree = 2;
+  const std::vector<NodeList> adjacency = {{1, 2}, {0, 3}, {0, 1}};
+  for (const auto &neighbours : adjacency) {
+    out.write(reinterpret_cast<const char *>(&stored_degree),
+              sizeof(stored_degree));
+    out.write(reinterpret_cast<const char *>(neighbours.data()),
+              static_cast<std::streamsize>(neighbours.size() *
+                                           sizeof(NodeId)));
+  }
+  out.close();
+  ASSERT_TRUE(out.good());
+
+  EXPECT_THROW((void)Graph(path), std::runtime_error);
+}
+
+TEST(GraphPersistence, SaveRejectsAdjacencyDegreeAboveThreshold) {
+  const auto path =
+      testutils::uniqueFixturePath("boundary", "graph_save_degree_overflow");
+  testutils::ScopedPathCleanup cleanup(path);
+
+  Graph graph(4, 2);
+  graph.setOutNeighbours(0, {1, 2, 3});
+
+  EXPECT_THROW(graph.save(path), std::runtime_error);
 }
 
 } // namespace

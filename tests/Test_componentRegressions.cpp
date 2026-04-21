@@ -515,11 +515,40 @@ TEST(VamanaRegression, BuildIndexProducesIdenticalGraphForIdenticalInputs) {
       << "mediod selection is not deterministic across identical inputs";
 }
 
-TEST(VamanaRegression, SearchFunctionIsImplemented) {
-  EXPECT_TRUE(false)
-      << "Vamana::search(HDVector, int64_t) is declared in vamana.hpp but has "
-         "no definition in src/utils/Vamana.cpp -- any caller would fail "
-         "to link";
+TEST(VamanaRegression, SearchReturnsKnownNearestNodesOnDeterministicGraph) {
+  const auto dataset_path = uniqueFixturePath("search_dataset");
+  const auto graph_path = uniqueFixturePath("search_graph");
+  ScopedFile dataset_cleanup{dataset_path};
+  ScopedFile graph_cleanup{graph_path};
+
+  writeDatasetFile(dataset_path, 5, 3,
+                   {{0.0f, 0.0f, 0.0f},
+                    {1.0f, 1.0f, 0.0f},
+                    {2.0f, 2.0f, 0.0f},
+                    {3.0f, 3.0f, 0.0f},
+                    {4.0f, 4.0f, 0.0f}});
+
+  // Fully connected graph with mediod 0. For query node 3 (vector {3, 0}),
+  // the distances are:
+  // node 3 -> 0, node 2 -> 1, node 4 -> 1, node 1 -> 4, node 0 -> 9.
+  // With tie-break by node id, the top-3 must be {3, 2, 4}.
+  writeGraphFile(graph_path, 5, 4, /*mediod=*/0,
+                 {{1, 2, 3, 4},
+                  {0, 2, 3, 4},
+                  {0, 1, 3, 4},
+                  {0, 1, 2, 4},
+                  {0, 1, 2, 3}});
+
+  auto ds = std::make_unique<InMemoryDataSet>(dataset_path);
+  Vamana v(std::move(ds), graph_path);
+  v.setSeachListSize(5);
+
+  const std::unique_ptr<NodeList> actual = v.search(/*queryNode=*/3, /*k=*/3);
+
+  ASSERT_NE(actual, nullptr);
+  EXPECT_EQ(*actual, NodeList({3, 2, 4}))
+      << "search(queryNode, k) did not return the expected nearest nodes "
+         "for a deterministic graph and dataset";
 }
 
 TEST(VamanaRegression, GreedySearchDoesNotReturnDuplicateNodes) {
@@ -553,10 +582,32 @@ TEST(VamanaRegression, GreedySearchDoesNotReturnDuplicateNodes) {
       << "visited set contained duplicate nodes";
 }
 
-TEST(VamanaRegression, SaveIsImplemented) {
-  EXPECT_TRUE(false)
-      << "Vamana::save() is declared in vamana.hpp but has no definition "
-         "in src/utils/Vamana.cpp -- any caller would fail to link";
+TEST(VamanaRegression, SavePersistsGraphThatLoadsBackIdentically) {
+  const auto dataset_path = uniqueFixturePath("save_dataset");
+  const auto graph_path = uniqueFixturePath("save_graph");
+  ScopedFile dataset_cleanup{dataset_path};
+  ScopedFile graph_cleanup{graph_path};
+
+  std::vector<std::vector<float>> rows;
+  for (uint64_t i = 0; i < 12; ++i) {
+    rows.push_back({static_cast<float>(i), static_cast<float>(i % 4),
+                    static_cast<float>(i / 4)});
+  }
+  writeDatasetFile(dataset_path, rows.size(), 3, rows);
+
+  std::srand(0);
+  auto ds = std::make_unique<InMemoryDataSet>(dataset_path);
+  Vamana v(std::move(ds), 3);
+
+  v.save(graph_path);
+
+  Graph loaded(graph_path);
+  EXPECT_EQ(loaded.getDegreeThreshold(), v.m_graph.getDegreeThreshold());
+  EXPECT_EQ(loaded.getMediod(), v.m_graph.getMediod());
+  for (NodeId node = 0; node < v.m_dataSet->getN(); ++node) {
+    EXPECT_EQ(loaded.getOutNeighbours(node), v.m_graph.getOutNeighbours(node))
+        << "saved graph changed adjacency for node " << node;
+  }
 }
 
 
@@ -696,37 +747,6 @@ TEST(VamanaRegression, MedoidDependsOnDatasetSize) {
   EXPECT_NE(v_small.m_graph.getMediod(), v_large.m_graph.getMediod())
       << "mediod selection ignores dataset size because getRandomNumber "
          "reseeds with a constant every call";
-}
-
-// =========================================================================
-// Load / clustering bugs -- load_from_binary returns a nullptr unconditionally
-// and clusterize_data never assigns any point to a cluster.
-// =========================================================================
-#include "load_from_binary.hpp"
-TEST(BinaryLoadingRegression, LoadFromBinaryReturnsUsablePayload) {
-  const auto path = uniqueFixturePath("load_bin");
-  ScopedFile cleanup{path};
-
-  std::vector<std::vector<float>> rows;
-  for (uint64_t i = 0; i < 10; ++i) {
-    rows.push_back({static_cast<float>(i), static_cast<float>(i * 2),
-                    static_cast<float>(i * 3)});
-  }
-  writeDatasetFile(path, rows.size(), 3, rows);
-
-  std::vector<std::vector<float> *> *loaded =
-      load_from_binary(path.string());
-
-  // The API declares a non-nullable pointer to a vector of vectors -- a
-  // caller who defensively dereferences it currently segfaults.
-  ASSERT_NE(loaded, nullptr)
-      << "load_from_binary unconditionally returns nullptr";
-  EXPECT_EQ(loaded->size(), rows.size());
-
-  for (auto *row : *loaded) {
-    delete row;
-  }
-  delete loaded;
 }
 
 // =========================================================================
@@ -1759,35 +1779,30 @@ TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset)
 }
 
 // =========================================================================
-// Cluster-related bugs -- clusterize_data currently does nothing useful.
+// Cluster-related tests -- validate the observable k-means helper steps.
 // =========================================================================
 #include "batch_stocastic_kmeans.hpp"
-TEST(KMeansRegression, ClusterizeDataAssignsEveryPointToACluster) {
-  // A working k-means pass should either mutate `vector_dataset` directly
-  // or return cluster assignments.  Today the function early-returns after
-  // selecting centroids and produces nothing.  We probe via a before/after
-  // invariant: the call must not throw, and the dataset must remain
-  // unchanged (the function has no output parameters).
-  const auto path = uniqueFixturePath("kmeans_noop");
-  ScopedFile cleanup{path};
+TEST(KMeansRegression, GetClosestClusterReturnsNearestCenter) {
+  auto makePoint = [](NodeId cluster_id, int64_t record_id,
+                      std::vector<float> coordinates) {
+    return Point{cluster_id,
+                 {record_id, std::make_shared<HDVector>(coordinates)}};
+  };
 
-  std::vector<std::vector<float>> rows;
-  for (uint64_t i = 0; i < 30; ++i) {
-    rows.push_back({static_cast<float>(i),
-                    static_cast<float>(i % 3),
-                    static_cast<float>(i / 3)});
-  }
-  writeDatasetFile(path, rows.size(), 3, rows);
+  const Cluster near_origin{
+      makePoint(/*cluster_id=*/0, /*record_id=*/100, {0.0f, 0.0f}), {}};
+  const Cluster far_positive{
+      makePoint(/*cluster_id=*/1, /*record_id=*/101, {9.0f, 9.0f}), {}};
+  const Cluster far_negative{
+      makePoint(/*cluster_id=*/2, /*record_id=*/102, {-8.0f, 6.0f}), {}};
 
-  InMemoryDataSet ds(path);
-  EXPECT_NO_THROW(clusterize_data(ds));
+  const Point query =
+      makePoint(/*cluster_id=*/99, /*record_id=*/999, {0.25f, 0.5f});
 
-  // The function must at least expose centroids via a side channel. The
-  // current implementation writes nothing back -- this is the bug.
-  EXPECT_TRUE(false) << "clusterize_data selects centroids locally and "
-                        "then returns without exposing them through any "
-                        "out-parameter or return value -- the clustering "
-                        "work is thrown away";
+  const uint64_t closest =
+      getClosestCluster(query, {near_origin, far_positive, far_negative});
+
+  EXPECT_EQ(closest, 0u);
 }
 
 // =========================================================================
@@ -1921,31 +1936,211 @@ TEST(KMeansRegression, ClusterizeDataDoesNotCrashOnEmptyDataset) {
 }
 
 // =========================================================================
-// clusterize_data with a small dataset (N < k) has a fundamental issue
-// because generateRandomNumbers silently drops values once collisions
-// pile up.  A correct implementation should either cap k at N or reject
-// the input rather than silently use fewer centroids than requested.
+// End-to-end clustering with k == 1 should assign every point to the only
+// cluster and snap the center to the member nearest the cluster mean.
 // =========================================================================
-TEST(KMeansRegression, ClusterizeDataWithFewerPointsThanClustersDoesNotSilentlyUsePartialCentroids) {
-  const auto path = uniqueFixturePath("kmeans_small_n");
+TEST(KMeansRegression, ClusterizeDataSingleClusterAssignsAllPointsAndSnapsCenter) {
+  const auto path = uniqueFixturePath("kmeans_single_cluster");
   ScopedFile cleanup{path};
 
-  // Default k for clusterize_data is 40; give it just 5 records.
-  std::vector<std::vector<float>> rows;
-  for (uint64_t i = 0; i < 5; ++i) {
-    rows.push_back({static_cast<float>(i), static_cast<float>(i),
-                    static_cast<float>(i)});
-  }
-  writeDatasetFile(path, rows.size(), 3, rows);
+  writeDatasetFile(path, 3, 3,
+                   {{0.0f, 0.0f, 0.0f},
+                    {1.0f, 2.0f, 2.0f},
+                    {2.0f, 10.0f, 10.0f}});
 
   InMemoryDataSet ds(path);
-  // We expect the implementation to either throw (rejecting N < k) or to
-  // publish the centroids it actually selected.  Currently it silently
-  // runs with partial centroids and emits nothing observable to the
-  // caller -- the bug.
-  EXPECT_TRUE(false)
-      << "clusterize_data silently runs with fewer centroids when N < k"
-         " instead of adjusting k or rejecting the input";
+  const std::vector<Cluster> clusters = clusterize_data(ds, /*k=*/1, /*iterations=*/3);
+
+  ASSERT_EQ(clusters.size(), 1u);
+  ASSERT_EQ(clusters[0].Points.size(), 3u);
+
+  std::vector<int64_t> record_ids;
+  for (const Point &point : clusters[0].Points) {
+    EXPECT_EQ(point.ClusterId, 0u);
+    record_ids.push_back(point.Record.recordId);
+  }
+  std::sort(record_ids.begin(), record_ids.end());
+  EXPECT_EQ(record_ids, (std::vector<int64_t>{0, 1, 2}));
+
+  EXPECT_EQ(clusters[0].center.ClusterId, 0u);
+  EXPECT_EQ(clusters[0].center.Record.recordId, 1);
+  ASSERT_NE(clusters[0].center.Record.vector, nullptr);
+  EXPECT_FLOAT_EQ((*clusters[0].center.Record.vector)[0], 2.0f);
+  EXPECT_FLOAT_EQ((*clusters[0].center.Record.vector)[1], 2.0f);
+}
+
+// =========================================================================
+// End-to-end clustering with k == N must return one singleton cluster per
+// input point regardless of the random permutation used for initialization.
+// =========================================================================
+TEST(KMeansRegression, ClusterizeDataWithKEqualToDatasetSizeReturnsSingletonClusters) {
+  const auto path = uniqueFixturePath("kmeans_singletons");
+  ScopedFile cleanup{path};
+
+  writeDatasetFile(path, 3, 3,
+                   {{0.0f, -10.0f, -10.0f},
+                    {1.0f, 0.0f, 20.0f},
+                    {2.0f, 30.0f, 5.0f}});
+
+  InMemoryDataSet ds(path);
+  const std::vector<Cluster> clusters = clusterize_data(ds, /*k=*/3, /*iterations=*/3);
+
+  ASSERT_EQ(clusters.size(), 3u);
+
+  std::vector<int64_t> center_ids;
+  std::vector<int64_t> member_ids;
+  for (uint64_t cluster_index = 0; cluster_index < clusters.size(); ++cluster_index) {
+    const Cluster &cluster = clusters[static_cast<size_t>(cluster_index)];
+    ASSERT_EQ(cluster.Points.size(), 1u);
+    EXPECT_EQ(cluster.Points[0].ClusterId, cluster_index);
+    EXPECT_EQ(cluster.center.ClusterId, cluster_index);
+    EXPECT_EQ(cluster.center.Record.recordId, cluster.Points[0].Record.recordId);
+    center_ids.push_back(cluster.center.Record.recordId);
+    member_ids.push_back(cluster.Points[0].Record.recordId);
+  }
+
+  std::sort(center_ids.begin(), center_ids.end());
+  std::sort(member_ids.begin(), member_ids.end());
+  EXPECT_EQ(center_ids, (std::vector<int64_t>{0, 1, 2}));
+  EXPECT_EQ(member_ids, (std::vector<int64_t>{0, 1, 2}));
+}
+
+// =========================================================================
+// End-to-end clustering on a larger multi-dimensional dataset should recover
+// the five well-separated groups. Because centroid initialization is hidden
+// behind a process-global RNG, we allow several attempts and require at least
+// one to converge to the expected partition.
+// =========================================================================
+TEST(KMeansRegression, ClusterizeDataRecoversFiveSeparatedClustersOnLargeDataset) {
+  const auto path = uniqueFixturePath("kmeans_five_clusters");
+  ScopedFile cleanup{path};
+
+  constexpr uint64_t dimensions = 6;
+  const std::vector<std::vector<float>> bases = {
+      {-180.0f,  40.0f,  15.0f, -25.0f,  60.0f, -10.0f},
+      {  90.0f, -140.0f, 35.0f,  80.0f, -55.0f,  25.0f},
+      { 210.0f,  120.0f, -75.0f, 30.0f,  15.0f,  95.0f},
+      {-110.0f, -220.0f, 90.0f, -60.0f, -35.0f,  55.0f},
+      {  35.0f,   15.0f, 205.0f, 140.0f, -95.0f, -70.0f},
+  };
+  const std::vector<int64_t> cluster_sizes = {26, 26, 26, 25, 25};
+
+  std::vector<std::vector<float>> rows;
+  rows.reserve(128);
+  int64_t record_id = 0;
+  for (uint64_t cluster = 0; cluster < bases.size(); ++cluster) {
+    for (int64_t offset = 0; offset < cluster_sizes[cluster]; ++offset) {
+      std::vector<float> row;
+      row.reserve(dimensions + 1);
+      row.push_back(static_cast<float>(record_id));
+      for (uint64_t dim = 0; dim < dimensions; ++dim) {
+        const float local_variation =
+            static_cast<float>(((offset * static_cast<int64_t>(dim + 3)) % 7) - 3);
+        const float cross_variation =
+            static_cast<float>((((offset + 1) * static_cast<int64_t>(cluster + dim + 2)) % 5) - 2);
+        row.push_back(bases[cluster][dim] + local_variation * 1.5f +
+                      cross_variation * 0.5f);
+      }
+      rows.push_back(row);
+      ++record_id;
+    }
+  }
+
+  writeDatasetFile(path, static_cast<int64_t>(rows.size()),
+                   static_cast<int64_t>(dimensions + 1), rows);
+
+  auto trueClusterId = [](int64_t id) -> int {
+    if (id < 26) return 0;
+    if (id < 52) return 1;
+    if (id < 78) return 2;
+    if (id < 103) return 3;
+    return 4;
+  };
+
+  bool observed_expected_partition = false;
+  int best_purity = -1;
+
+  for (uint64_t attempt = 0; attempt < 8 && !observed_expected_partition; ++attempt) {
+    InMemoryDataSet ds(path);
+    const std::vector<Cluster> clusters =
+        clusterize_data(ds, /*k=*/5, /*iterations=*/20);
+
+    ASSERT_EQ(clusters.size(), 5u);
+
+    std::vector<int> seen(static_cast<size_t>(rows.size()), 0);
+    bool all_non_empty = true;
+    bool all_centers_are_members = true;
+    int purity = 0;
+    std::set<int> represented_true_clusters;
+
+    for (uint64_t cluster_index = 0; cluster_index < clusters.size(); ++cluster_index) {
+      const Cluster &cluster = clusters[static_cast<size_t>(cluster_index)];
+      all_non_empty = all_non_empty && !cluster.Points.empty();
+
+      std::array<int, 5> counts = {0, 0, 0, 0, 0};
+      bool center_is_member = false;
+      for (const Point &point : cluster.Points) {
+        ASSERT_GE(point.Record.recordId, 0);
+        ASSERT_LT(static_cast<size_t>(point.Record.recordId), rows.size());
+        ++seen[static_cast<size_t>(point.Record.recordId)];
+        const int label = trueClusterId(point.Record.recordId);
+        ++counts[static_cast<size_t>(label)];
+        if (point.Record.recordId == cluster.center.Record.recordId) {
+          center_is_member = true;
+        }
+      }
+
+      all_centers_are_members = all_centers_are_members && center_is_member;
+      const auto dominant = std::max_element(counts.begin(), counts.end());
+      purity += *dominant;
+      represented_true_clusters.insert(
+          static_cast<int>(std::distance(counts.begin(), dominant)));
+    }
+
+    for (int count : seen) {
+      EXPECT_EQ(count, 1);
+    }
+    EXPECT_TRUE(all_non_empty);
+    EXPECT_TRUE(all_centers_are_members);
+
+    best_purity = std::max(best_purity, purity);
+    observed_expected_partition =
+        all_non_empty && all_centers_are_members && purity == 128 &&
+        represented_true_clusters.size() == 5;
+  }
+
+  EXPECT_TRUE(observed_expected_partition)
+      << "clusterize_data did not recover the expected 5-way partition for "
+         "a well-separated 128-point, 6-dimensional dataset across 8 "
+         "attempts; best purity was "
+      << best_purity << "/128. The likely cause is the hidden random "
+         "initializer with no injectable seed or initial centers.";
+}
+
+// =========================================================================
+// Center updates should move to the existing point nearest the arithmetic
+// mean of the cluster's members.
+// =========================================================================
+TEST(KMeansRegression, NewCenterReturnsClusterPointClosestToMean) {
+  auto makePoint = [](NodeId cluster_id, int64_t record_id,
+                      std::vector<float> coordinates) {
+    return Point{cluster_id,
+                 {record_id, std::make_shared<HDVector>(coordinates)}};
+  };
+
+  const Point first = makePoint(/*cluster_id=*/7, /*record_id=*/0, {0.0f, 0.0f});
+  const Point second = makePoint(/*cluster_id=*/7, /*record_id=*/1, {2.0f, 2.0f});
+  const Point third = makePoint(/*cluster_id=*/7, /*record_id=*/2, {10.0f, 10.0f});
+
+  Cluster cluster{first, {first, second, third}};
+
+  const Point center = newCenter(cluster);
+
+  EXPECT_EQ(center.ClusterId, second.ClusterId);
+  EXPECT_EQ(center.Record.recordId, second.Record.recordId);
+  ASSERT_NE(center.Record.vector, nullptr);
+  EXPECT_FLOAT_EQ((*center.Record.vector)[0], 2.0f);
+  EXPECT_FLOAT_EQ((*center.Record.vector)[1], 2.0f);
 }
 
 // =========================================================================

@@ -17,10 +17,10 @@ public:
   float m_distanceThreshold;
   uint64_t m_searchListSize;
   void prune(NodeId node, NodeList &candidateSet);
-  SearchResults greedySearch(HDVector & queryNode, uint64_t k);
+  SearchResults greedySearch(const HDVector & queryNode, uint64_t k);
   void insertIntoSet(const NodeList &NOut,
                      NodeList &ANNset,
-                     HDVector &nod);
+                     const HDVector &nod);
   Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
          float distanceThreshold = 1.2f);
   Vamana(std::unique_ptr<DataSet> dataSet, Graph graph,
@@ -38,8 +38,8 @@ public:
   }
   // take HDVector reference instead
   void buildIndex();
-  std::unique_ptr<std::vector<NodeId>> search(HDVector queryNode, uint64_t k);
-  void save();
+  std::unique_ptr<NodeList> search(NodeId queryNode, uint64_t k);
+  void save(std::filesystem::path path);
   /*   ~Vamana(); */
 };
 

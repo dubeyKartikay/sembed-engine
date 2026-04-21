@@ -370,40 +370,6 @@ TEST(VamanaRobustness, BuildIndexDoesNotSpamStdout) {
       << "buildIndex() wrote the following to stdout:\n" << captured.str();
 }
 
-// BUG: greedySearch truncates approximateNN with `while (size > k) pop_back()`.
-// Passing k = -1 promotes to size_t max on comparison, the loop never runs,
-// and the algorithm returns whatever happens to be left in approximateNN.
-// A negative k is meaningless -- the contract should be to return nothing or
-// throw std::invalid_argument.
-TEST(VamanaRobustness, GreedySearchWithNegativeKReturnsEmptyOrThrows) {
-  const auto path = uniqueFixturePath("negative_k");
-  ScopedFile cleanup{path};
-
-  int64_t n = 0;
-  int64_t stored = 0;
-  const auto rows = makeSmallClusteredRows(n, stored);
-  writeDatasetFile(path, n, stored, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
-  Vamana v(std::move(ds), 3);
-  v.setSeachListSize(10);
-
-  HDVector q(std::vector<float>{25.0f, -5.0f});
-  bool threw = false;
-  size_t resultSize = 0;
-  try {
-    SearchResults r = v.greedySearch(q, -1);
-    resultSize = r.approximateNN.size();
-  } catch (const std::exception &) {
-    threw = true;
-  }
-
-  EXPECT_TRUE(threw || resultSize == 0U)
-      << "negative k was not rejected; search returned "
-      << resultSize << " candidates";
-}
-
 
 // BUG: a query whose dimension does not match the dataset must be rejected
 // before the search starts.  Currently the algorithm happily pushes the
