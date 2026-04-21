@@ -92,15 +92,15 @@ TEST(GraphMutation, AddOutNeighbourUniqueSkipsDuplicatesAndClearRemovesEdges) {
   std::srand(0);
   Graph graph(3, 2);
 
-  graph.clearOutNeighbours(0);
-  graph.addOutNeighbourUnique(0, 1);
-  graph.addOutNeighbourUnique(0, 1);
-  graph.addOutNeighbourUnique(0, 2);
+  graph.clearOutNeighbors(0);
+  graph.addOutNeighborUnique(0, 1);
+  graph.addOutNeighborUnique(0, 1);
+  graph.addOutNeighborUnique(0, 2);
 
-  EXPECT_EQ(graph.getOutNeighbours(0), NodeList({1, 2}));
+  EXPECT_EQ(graph.getOutNeighbors(0), NodeList({1, 2}));
 
-  graph.clearOutNeighbours(0);
-  EXPECT_TRUE(graph.getOutNeighbours(0).empty());
+  graph.clearOutNeighbors(0);
+  EXPECT_TRUE(graph.getOutNeighbors(0).empty());
 }
 
 TEST(GraphInitialization,
@@ -111,7 +111,7 @@ TEST(GraphInitialization,
   std::vector<uint64_t> observedDegrees;
 
   for (NodeId node = 0; node < 64; ++node) {
-    const auto &neighbours = graph.getOutNeighbours(node);
+    const auto &neighbours = graph.getOutNeighbors(node);
     std::unordered_set<NodeId> unique(neighbours.begin(), neighbours.end());
 
     EXPECT_EQ(unique.size(), neighbours.size());
@@ -134,10 +134,10 @@ TEST(GraphPersistence, LoadsSavedAdjacencyWithoutCrashing) {
   testutils::writeGraphFile(path, 3, 2, {{1, 2}, {0, 2}, {0, 1}});
   Graph graph(path);
   ASSERT_EQ(graph.getDegreeThreshold(), 2U);
-  EXPECT_FALSE(graph.getMediod().has_value());
-  EXPECT_EQ(graph.getOutNeighbours(0), NodeList({1, 2}));
-  EXPECT_EQ(graph.getOutNeighbours(1), NodeList({0, 2}));
-  EXPECT_EQ(graph.getOutNeighbours(2), NodeList({0, 1}));
+  EXPECT_FALSE(graph.getMedoid().has_value());
+  EXPECT_EQ(graph.getOutNeighbors(0), NodeList({1, 2}));
+  EXPECT_EQ(graph.getOutNeighbors(1), NodeList({0, 2}));
+  EXPECT_EQ(graph.getOutNeighbors(2), NodeList({0, 1}));
 }
 
 TEST(GraphPersistence, LoadsLargeSavedAdjacencyWithoutCrashing) {
@@ -154,7 +154,7 @@ TEST(GraphPersistence, LoadsLargeSavedAdjacencyWithoutCrashing) {
             static_cast<uint64_t>(kDegreeThreshold));
 
   for (NodeId node = 0; node < kNodeCount; ++node) {
-    const auto &neighbours = graph.getOutNeighbours(node);
+    const auto &neighbours = graph.getOutNeighbors(node);
     ASSERT_EQ(neighbours.size(), static_cast<size_t>(kDegreeThreshold));
 
     for (NodeId offset = 1; offset <= kDegreeThreshold; ++offset) {
@@ -194,7 +194,7 @@ TEST(GraphPersistence, PreservesRandomizedVariableDegreeAdjacency) {
   Graph graph(path);
   ASSERT_EQ(graph.getDegreeThreshold(), kDegreeThreshold);
   for (NodeId node = 0; node < kNodeCount; ++node) {
-    EXPECT_EQ(graph.getOutNeighbours(node), expected[static_cast<size_t>(node)])
+    EXPECT_EQ(graph.getOutNeighbors(node), expected[static_cast<size_t>(node)])
         << "loaded adjacency changed for node " << node;
   }
 }
@@ -208,11 +208,11 @@ TEST(GraphPersistence, RejectsAdjacencyDegreeAboveThreshold) {
   ASSERT_TRUE(out.is_open());
   const uint64_t node_count = 3;
   const uint64_t degree_threshold = 2;
-  const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
+  const uint64_t no_medoid = std::numeric_limits<uint64_t>::max();
   out.write(reinterpret_cast<const char *>(&node_count), sizeof(node_count));
   out.write(reinterpret_cast<const char *>(&degree_threshold),
             sizeof(degree_threshold));
-  out.write(reinterpret_cast<const char *>(&no_mediod), sizeof(no_mediod));
+  out.write(reinterpret_cast<const char *>(&no_medoid), sizeof(no_medoid));
   const uint64_t stored_degree = 3;
   const NodeList neighbours = {0, 1, 2};
   for (uint64_t node = 0; node < node_count; ++node) {
@@ -237,11 +237,11 @@ TEST(GraphPersistence, RejectsAdjacencyWithOutOfRangeNeighbourId) {
   ASSERT_TRUE(out.is_open());
   const uint64_t node_count = 3;
   const uint64_t degree_threshold = 2;
-  const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
+  const uint64_t no_medoid = std::numeric_limits<uint64_t>::max();
   out.write(reinterpret_cast<const char *>(&node_count), sizeof(node_count));
   out.write(reinterpret_cast<const char *>(&degree_threshold),
             sizeof(degree_threshold));
-  out.write(reinterpret_cast<const char *>(&no_mediod), sizeof(no_mediod));
+  out.write(reinterpret_cast<const char *>(&no_medoid), sizeof(no_medoid));
 
   const uint64_t stored_degree = 2;
   const std::vector<NodeList> adjacency = {{1, 2}, {0, 3}, {0, 1}};
@@ -264,9 +264,7 @@ TEST(GraphPersistence, SaveRejectsAdjacencyDegreeAboveThreshold) {
   testutils::ScopedPathCleanup cleanup(path);
 
   Graph graph(4, 2);
-  graph.setOutNeighbours(0, {1, 2, 3});
-
-  EXPECT_THROW(graph.save(path), std::runtime_error);
+  EXPECT_THROW(graph.setOutNeighbors(0, {1, 2, 3}), std::invalid_argument);
 }
 
 } // namespace

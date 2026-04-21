@@ -63,7 +63,7 @@ struct ScopedPathCleanup {
 
 inline std::filesystem::path writeGraphFile(
     const std::filesystem::path &path, uint64_t nodes,
-    uint64_t degree_threshold, uint64_t mediod,
+    uint64_t degree_threshold, uint64_t medoid,
     const std::vector<NodeList> &adjacency);
 
 inline std::filesystem::path writeDatasetFile(
@@ -92,13 +92,13 @@ inline std::filesystem::path writeDatasetFile(
 inline std::filesystem::path writeGraphFile(
     const std::filesystem::path &path, uint64_t nodes, uint64_t degree_threshold,
     const std::vector<NodeList> &adjacency) {
-  const uint64_t no_mediod = std::numeric_limits<uint64_t>::max();
-  return writeGraphFile(path, nodes, degree_threshold, no_mediod, adjacency);
+  const uint64_t no_medoid = std::numeric_limits<uint64_t>::max();
+  return writeGraphFile(path, nodes, degree_threshold, no_medoid, adjacency);
 }
 
 inline std::filesystem::path writeGraphFile(
     const std::filesystem::path &path, uint64_t nodes, uint64_t degree_threshold,
-    uint64_t mediod, const std::vector<NodeList> &adjacency) {
+    uint64_t medoid, const std::vector<NodeList> &adjacency) {
   if (adjacency.size() != static_cast<size_t>(nodes)) {
     throw std::invalid_argument(
         "graph fixture adjacency size does not match node count");
@@ -110,7 +110,7 @@ inline std::filesystem::path writeGraphFile(
       throw std::invalid_argument(
           "graph fixture adjacency exceeds degree threshold");
     }
-    graph.setOutNeighbours(node, neighbours);
+    graph.setOutNeighbors(node, neighbours);
   }
 
   graph.save(path);
@@ -120,9 +120,9 @@ inline std::filesystem::path writeGraphFile(
     throw std::runtime_error("failed to reopen graph fixture for patching");
   }
   file.seekp(static_cast<std::streamoff>(sizeof(uint64_t) * 2), std::ios::beg);
-  file.write(reinterpret_cast<const char *>(&mediod), sizeof(mediod));
+  file.write(reinterpret_cast<const char *>(&medoid), sizeof(medoid));
   if (!file) {
-    throw std::runtime_error("failed to patch graph fixture mediod");
+    throw std::runtime_error("failed to patch graph fixture medoid");
   }
   return path;
 }

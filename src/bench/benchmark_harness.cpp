@@ -85,12 +85,12 @@ Json jsonOptionalPath(const std::optional<std::filesystem::path> &value) {
 }
 
 float squaredDistance(const HDVector &left, const HDVector &right) {
-  if (left.getDimention() != right.getDimention()) {
+  if (left.getDimension() != right.getDimension()) {
     throw std::invalid_argument("vector dimensions must match");
   }
 
   double total = 0.0;
-  for (uint64_t dim = 0; dim < left.getDimention(); ++dim) {
+  for (uint64_t dim = 0; dim < left.getDimension(); ++dim) {
     const double delta =
         static_cast<double>(left[static_cast<int64_t>(dim)]) -
         static_cast<double>(right[static_cast<int64_t>(dim)]);
@@ -460,7 +460,7 @@ BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
   result.datasetPath = parameters.datasetPath;
   result.queryDatasetPath = parameters.queryDatasetPath;
   result.datasetSize = baseDataSet->getN();
-  result.dimensions = baseDataSet->getDimentions();
+  result.dimensions = baseDataSet->getDimensions();
   result.queryCount = static_cast<uint64_t>(workload.size());
   result.k = parameters.k;
   result.seed = parameters.seed;
@@ -501,7 +501,7 @@ BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
   Vamana index(std::move(baseDataSet), parameters.degreeThreshold,
                parameters.distanceThreshold);
   const Clock::time_point buildEnd = Clock::now();
-  index.setSeachListSize(static_cast<int64_t>(parameters.searchListSize));
+  index.setSearchListSize(static_cast<int64_t>(parameters.searchListSize));
 
   const std::vector<QueryMeasurement> measurements =
       runVamanaQueries(index, workload, parameters.k);
@@ -524,7 +524,7 @@ BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
       makeDataSet(parameters.datasetMode, parameters.datasetPath);
   Vamana reloadedIndex(std::move(reloadedDataSet), artifactPath,
                        parameters.distanceThreshold);
-  reloadedIndex.setSeachListSize(static_cast<int64_t>(parameters.searchListSize));
+  reloadedIndex.setSearchListSize(static_cast<int64_t>(parameters.searchListSize));
   const Clock::time_point restartEnd = Clock::now();
 
   result.degreeThreshold = parameters.degreeThreshold;

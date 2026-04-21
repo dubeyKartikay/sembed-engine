@@ -46,7 +46,7 @@ TYPED_TEST(DataSetApiTest, ReportsDatasetShape) {
   auto dataSet = this->makeDataSet();
 
   EXPECT_EQ(dataSet->getN(), this->fixture.n);
-  EXPECT_EQ(dataSet->getDimentions(), this->fixture.dimensions - 1);
+  EXPECT_EQ(dataSet->getDimensions(), this->fixture.dimensions - 1);
 }
 
 TYPED_TEST(DataSetApiTest, ReturnsRecordViewsByIndex) {
@@ -59,10 +59,10 @@ TYPED_TEST(DataSetApiTest, ReturnsRecordViewsByIndex) {
     ASSERT_NE(record.vector, nullptr);
     EXPECT_EQ(record.recordId,
               static_cast<int64_t>(this->fixture.rows[row_index][0]));
-    EXPECT_EQ(record.vector->getDimention(), this->fixture.dimensions - 1);
+    EXPECT_EQ(record.vector->getDimension(), this->fixture.dimensions - 1);
 
     for (int64_t dim = 0;
-         dim < static_cast<int64_t>(record.vector->getDimention()); ++dim) {
+         dim < static_cast<int64_t>(record.vector->getDimension()); ++dim) {
       EXPECT_FLOAT_EQ((*record.vector)[dim],
                       this->fixture.rows[row_index][dim + 1]);
     }
@@ -83,9 +83,9 @@ TYPED_TEST(DataSetApiTest, ReturnsContiguousRecordRangesFromIndex) {
     ASSERT_NE(record.vector, nullptr);
     EXPECT_EQ(record.recordId,
               static_cast<int64_t>(this->fixture.rows[offset + 1][0]));
-    ASSERT_EQ(record.vector->getDimention(), this->fixture.dimensions - 1);
+    ASSERT_EQ(record.vector->getDimension(), this->fixture.dimensions - 1);
     for (int64_t dim = 0;
-         dim < static_cast<int64_t>(record.vector->getDimention()); ++dim) {
+         dim < static_cast<int64_t>(record.vector->getDimension()); ++dim) {
       EXPECT_FLOAT_EQ((*record.vector)[dim],
                       this->fixture.rows[offset + 1][dim + 1]);
     }
@@ -104,7 +104,7 @@ TYPED_TEST(DataSetApiTest, ReturnsContiguousVectorRangesFromIndex) {
        offset < static_cast<int64_t>(vectors->size()); ++offset) {
     ASSERT_NE(vectors->at(offset), nullptr);
     for (int64_t dim = 0;
-         dim < static_cast<int64_t>(vectors->at(offset)->getDimention());
+         dim < static_cast<int64_t>(vectors->at(offset)->getDimension());
          ++dim) {
       EXPECT_FLOAT_EQ((*vectors->at(offset))[dim],
                       this->fixture.rows[offset + 1][dim + 1]);

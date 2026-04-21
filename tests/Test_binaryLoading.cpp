@@ -17,7 +17,7 @@ TYPED_TEST_SUITE(BinaryLoadingTest, DataSetImplementations);
 TYPED_TEST(BinaryLoadingTest, LoadsGloveBinary) {
   TypeParam dataset(testutils::embeddingFixturePath("gvec.bin"));
   ASSERT_EQ(dataset.getN(), testutils::kGloveFixtureRows);
-  ASSERT_EQ(dataset.getDimentions(), testutils::kGloveFixtureDimensions);
+  ASSERT_EQ(dataset.getDimensions(), testutils::kGloveFixtureDimensions);
 }
 
 TYPED_TEST(BinaryLoadingTest, ReadsFirstVectorFromGloveBinary) {
@@ -27,7 +27,7 @@ TYPED_TEST(BinaryLoadingTest, ReadsFirstVectorFromGloveBinary) {
   ASSERT_NE(record.vector, nullptr);
 
   const auto &expected = testutils::firstGloveVector();
-  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimentions()); ++i) {
+  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimensions()); ++i) {
     EXPECT_EQ((*record.vector)[i], expected.at(static_cast<size_t>(i)));
   }
 }
@@ -39,7 +39,7 @@ TYPED_TEST(BinaryLoadingTest, ReadsLastVectorFromGloveBinary) {
   ASSERT_NE(record.vector, nullptr);
 
   const auto &expected = testutils::lastGloveVector();
-  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimentions()); ++i) {
+  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimensions()); ++i) {
     EXPECT_EQ((*record.vector)[i], expected.at(static_cast<size_t>(i)));
   }
 }

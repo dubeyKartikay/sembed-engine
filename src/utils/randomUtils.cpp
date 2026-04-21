@@ -1,9 +1,7 @@
 #include "utils.hpp"
+
 #include <algorithm>
 #include <cstring>
-#include <cstdlib>
-#include <iostream>
-#include <limits>
 #include <random>
 #include <unordered_set>
 
@@ -33,16 +31,21 @@ std::mt19937_64 makeDeterministicRng(
   return std::mt19937_64(seed);
 }
 
-NodeList getPermutation(uint64_t n, std::mt19937_64 &rng) {
-  NodeList perm(static_cast<size_t>(n), 0);
-  for (uint64_t i = 0; i < n; ++i) {
+NodeList getPermutation(int64_t n, std::mt19937_64 &rng) {
+  if (n <= 0) {
+    return {};
+  }
+
+  const uint64_t count = static_cast<uint64_t>(n);
+  NodeList perm(static_cast<size_t>(count), 0);
+  for (uint64_t i = 0; i < count; ++i) {
     perm[static_cast<size_t>(i)] = i;
   }
   std::shuffle(perm.begin(), perm.end(), rng);
   return perm;
 }
 
-NodeList getPermutation(uint64_t n) {
+NodeList getPermutation(int64_t n) {
   static std::mt19937_64 rng(std::random_device{}());
   return getPermutation(n, rng);
 }

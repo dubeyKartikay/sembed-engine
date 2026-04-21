@@ -1,0 +1,176 @@
+{
+  "profile": "benchmarks/local_smoke.json",
+  "created_at_utc": "2026-04-21T20:54:46.430761+00:00",
+  "runs": [
+    {
+      "name": "gvec-bruteforce",
+      "result": {
+        "algorithm": "bruteforce",
+        "dataset": {
+          "dimensions": 50,
+          "mode": "memory",
+          "path": "build/gvec.bin",
+          "records": 256
+        },
+        "metrics": {
+          "average_visited_nodes": null,
+          "build_time_seconds": null,
+          "dataset_load_time_seconds": 0.000271722,
+          "insert_throughput_vectors_per_second": null,
+          "latency_p50_ms": 0.2658255,
+          "latency_p95_ms": 0.43240114999999996,
+          "queries_per_second": 3399.5501970145583,
+          "query_dataset_load_time_seconds": null,
+          "ram_footprint_bytes": 598016,
+          "recall_at_k": 1.0,
+          "restart_time_seconds": null,
+          "ssd_footprint_bytes": null
+        },
+        "notes": "Insert throughput is unavailable because the current engine exposes no insert API yet.",
+        "parameters": {
+          "degree_threshold": null,
+          "distance_threshold": null,
+          "search_list_size": null
+        },
+        "workload": {
+          "exclude_self": true,
+          "k": 10,
+          "query_count": 32,
+          "query_dataset_path": null,
+          "seed": 20260421
+        }
+      }
+    },
+    {
+      "name": "gvec-vamana-r32-l64",
+      "result": {
+        "algorithm": "vamana",
+        "dataset": {
+          "dimensions": 50,
+          "mode": "memory",
+          "path": "build/gvec.bin",
+          "records": 256
+        },
+        "metrics": {
+          "average_visited_nodes": 65.09375,
+          "build_time_seconds": 10.366332814,
+          "dataset_load_time_seconds": 0.000215736,
+          "insert_throughput_vectors_per_second": null,
+          "latency_p50_ms": 22.9789305,
+          "latency_p95_ms": 24.6380622,
+          "queries_per_second": 43.68341695094697,
+          "query_dataset_load_time_seconds": null,
+          "ram_footprint_bytes": 1204224,
+          "recall_at_k": 1.0,
+          "restart_time_seconds": 0.00140749,
+          "ssd_footprint_bytes": 49080
+        },
+        "notes": "Insert throughput is unavailable because the current engine exposes no insert API yet.",
+        "parameters": {
+          "degree_threshold": 32,
+          "distance_threshold": 1.2000000476837158,
+          "search_list_size": 64
+        },
+        "workload": {
+          "exclude_self": true,
+          "k": 10,
+          "query_count": 32,
+          "query_dataset_path": null,
+          "seed": 20260421
+        }
+      }
+    },
+    {
+      "name": "w2v-bruteforce",
+      "result": {
+        "algorithm": "bruteforce",
+        "dataset": {
+          "dimensions": 300,
+          "mode": "memory",
+          "path": "build/w2v.bin",
+          "records": 256
+        },
+        "metrics": {
+          "average_visited_nodes": null,
+          "build_time_seconds": null,
+          "dataset_load_time_seconds": 0.000859808,
+          "insert_throughput_vectors_per_second": null,
+          "latency_p50_ms": 1.4942675,
+          "latency_p95_ms": 1.8474281,
+          "queries_per_second": 643.9078898617287,
+          "query_dataset_load_time_seconds": null,
+          "ram_footprint_bytes": 847872,
+          "recall_at_k": 1.0,
+          "restart_time_seconds": null,
+          "ssd_footprint_bytes": null
+        },
+        "notes": "Insert throughput is unavailable because the current engine exposes no insert API yet.",
+        "parameters": {
+          "degree_threshold": null,
+          "distance_threshold": null,
+          "search_list_size": null
+        },
+        "workload": {
+          "exclude_self": true,
+          "k": 10,
+          "query_count": 32,
+          "query_dataset_path": null,
+          "seed": 20260421
+        }
+      }
+    },
+    {
+      "name": "w2v-vamana-r32-l64",
+      "result": {
+        "algorithm": "vamana",
+        "dataset": {
+          "dimensions": 300,
+          "mode": "memory",
+          "path": "build/w2v.bin",
+          "records": 256
+        },
+        "metrics": {
+          "average_visited_nodes": 64.625,
+          "build_time_seconds": 100.48089385,
+          "dataset_load_time_seconds": 0.000875408,
+          "insert_throughput_vectors_per_second": null,
+          "latency_p50_ms": 142.2662055,
+          "latency_p95_ms": 144.32683615000002,
+          "queries_per_second": 7.03972581647731,
+          "query_dataset_load_time_seconds": null,
+          "ram_footprint_bytes": 1978368,
+          "recall_at_k": 1.0,
+          "restart_time_seconds": 0.002432138,
+          "ssd_footprint_bytes": 67592
+        },
+        "notes": "Insert throughput is unavailable because the current engine exposes no insert API yet.",
+        "parameters": {
+          "degree_threshold": 32,
+          "distance_threshold": 1.2000000476837158,
+          "search_list_size": 64
+        },
+        "workload": {
+          "exclude_self": true,
+          "k": 10,
+          "query_count": 32,
+          "query_dataset_path": null,
+          "seed": 20260421
+        }
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "run": "gvec-vamana-r32-l64",
+      "baseline": "gvec-bruteforce",
+      "queries_per_second_speedup_vs_bruteforce": 0.012849763768544789,
+      "recall_at_k_delta_vs_bruteforce": 0.0
+    },
+    {
+      "run": "w2v-vamana-r32-l64",
+      "baseline": "w2v-bruteforce",
+      "queries_per_second_speedup_vs_bruteforce": 0.010932814968285302,
+      "recall_at_k_delta_vs_bruteforce": 0.0
+    }
+  ]
+}

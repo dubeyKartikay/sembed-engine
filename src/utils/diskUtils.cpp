@@ -1,5 +1,3 @@
-#include "HDVector.hpp"
-#include "dataset.hpp"
 #include <cstdint>
 #include <algorithm>
 #include <cstring>
@@ -8,61 +6,74 @@
 #include <limits>
 #include <memory>
 #include <vector>
+
+#include "HDVector.hpp"
+#include "dataset.hpp"
+
 namespace fs = std::filesystem;
 namespace {
 constexpr std::streamoff STARTING_HEADER_OFFSET =
-    static_cast<std::streamoff>(2 * sizeof(uint64_t));
+    static_cast<std::streamoff>(2 * sizeof(int64_t));
 }
-bool isValidPath(const std::string &path) { return fs::exists(path); }
-bool isValidFile(const std::string &path) { return isValidPath(path) && !fs::is_directory(path); }
+
+bool isValidPath(const std::string &path) {
+  return !path.empty() && fs::exists(path) && !fs::is_directory(path);
+}
+
+bool isValidFile(const std::string &path) {
+  return isValidPath(path);
+}
+
 FileDataSet::FileDataSet(fs::path path) {
   if (!isValidFile(path)) {
-    throw std::invalid_argument("The path does not exist");
+    throw std::invalid_argument("dataset path must refer to a readable file");
   }
   m_file.open(path, std::ios::binary | std::ios::in);
   if (!m_file.is_open()) {
     throw std::runtime_error("could not open the file provided");
   }
   int64_t raw_n = 0;
-  int64_t raw_stored_dimentions = 0;
+  int64_t raw_stored_dimensions = 0;
   m_file.read(reinterpret_cast<char *>(&raw_n), sizeof(raw_n));
-  m_file.read(reinterpret_cast<char *>(&raw_stored_dimentions),
-              sizeof(raw_stored_dimentions));
+  m_file.read(reinterpret_cast<char *>(&raw_stored_dimensions),
+              sizeof(raw_stored_dimensions));
+  if (!m_file) {
+    throw std::runtime_error("failed to read dataset header");
+  }
   if (raw_n < 0) {
     throw std::runtime_error("dataset record count must be non-negative");
   }
-  if (raw_stored_dimentions <= 1) {
+  if (raw_stored_dimensions <= 1) {
     throw std::runtime_error(
         "dataset vectors must include at least a record id and some data");
   }
   this->n = static_cast<uint64_t>(raw_n);
-  this->storedDimentions = static_cast<uint64_t>(raw_stored_dimentions);
-  this->dimentions = this->storedDimentions - 1;
+  this->storedDimensions = static_cast<uint64_t>(raw_stored_dimensions);
+  this->dimensions = this->storedDimensions - 1;
 }
 
 RecordView FileDataSet::getRecordViewByIndex(uint64_t index) {
-  if (index >= this->getN()) {
+  if (index >= getN()) {
     throw std::out_of_range("record index is outside dataset bounds");
   }
 
-  std::vector<char> buffer(rowsize(this->dimentions), 0);
+  std::vector<char> buffer(rowsize(dimensions), 0);
   std::shared_ptr<HDVector> vector =
-      std::make_shared<HDVector>(this->getDimentions());
+      std::make_shared<HDVector>(getDimensions());
   m_file.clear();
   m_file.seekg(STARTING_HEADER_OFFSET +
-               static_cast<std::streamoff>(index * rowsize(this->dimentions)));
+               static_cast<std::streamoff>(index * rowsize(dimensions)));
   m_file.read(reinterpret_cast<char *>(buffer.data()),
-              static_cast<std::streamsize>(rowsize(this->dimentions)));
+              static_cast<std::streamsize>(rowsize(dimensions)));
   if (!m_file) {
     throw std::runtime_error("failed to read record from dataset");
   }
 
   int64_t id = 0;
-  std::memcpy(&id, buffer.data(),
-              sizeof(int64_t));
+  std::memcpy(&id, buffer.data(), sizeof(int64_t));
   std::memcpy(vector->getDataPointer(),
               buffer.data() + sizeof(int64_t),
-              this->getDimentions() * sizeof(float));
+              getDimensions() * sizeof(float));
   return {id, vector};
 }
 
@@ -79,9 +90,9 @@ FileDataSet::getNRecordViewsFromIndex(uint64_t index, uint64_t n) {
 
   m_file.clear();
   m_file.seekg(STARTING_HEADER_OFFSET +
-               static_cast<std::streamoff>(index * rowsize(this->dimentions)));
+               static_cast<std::streamoff>(index * rowsize(dimensions)));
 
-  std::vector<char> buffer(static_cast<size_t>(n) * rowsize(this->dimentions), 0);
+  std::vector<char> buffer(static_cast<size_t>(n) * rowsize(dimensions), 0);
   m_file.read(buffer.data(),
               static_cast<std::streamsize>(buffer.size()));
   if (!m_file) {
@@ -90,12 +101,13 @@ FileDataSet::getNRecordViewsFromIndex(uint64_t index, uint64_t n) {
 
   for (uint64_t i = 0; i < n; ++i) {
     std::shared_ptr<HDVector> vector_floats =
-        std::make_shared<HDVector>(dimentions);
+        std::make_shared<HDVector>(dimensions);
     int64_t id = 0;
-    const char *record = buffer.data() + static_cast<size_t>(i) * rowsize(this->dimentions);
+    const char *record =
+        buffer.data() + static_cast<size_t>(i) * rowsize(dimensions);
     std::memcpy(&id, record, sizeof(int64_t));
     std::memcpy(vector_floats->getDataPointer(), record + sizeof(int64_t),
-                this->getDimentions() * sizeof(float));
+                getDimensions() * sizeof(float));
     records->push_back({id, vector_floats});
   }
 

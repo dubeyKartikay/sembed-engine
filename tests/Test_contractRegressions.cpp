@@ -56,24 +56,20 @@ std::vector<std::vector<float>> makeClusteredRows(int64_t &outN,
 // Graph API-surface bugs
 // ============================================================================
 
-// BUG: setOutNeighbours blindly stores the caller-supplied vector without
+// BUG: setOutNeighbors blindly stores the caller-supplied vector without
 // enforcing the degree cap that the graph was constructed with. This turns
 // the "degree threshold" into advisory information only.
 TEST(GraphContractRegression, SetOutNeighboursRespectsDegreeThreshold) {
   std::srand(0);
   Graph graph(6, 2);
 
-  graph.setOutNeighbours(0, {1, 2, 3, 4, 5});
-  const auto &neighbours = graph.getOutNeighbours(0);
-
-  EXPECT_LE(static_cast<uint64_t>(neighbours.size()),
-            graph.getDegreeThreshold())
-      << "setOutNeighbours stored " << neighbours.size()
-      << " neighbours on a graph whose degree threshold is "
-      << graph.getDegreeThreshold();
+  EXPECT_THROW(graph.setOutNeighbors(0, {1, 2, 3, 4, 5}),
+               std::invalid_argument)
+      << "setOutNeighbors should reject adjacency larger than the configured "
+         "degree threshold";
 }
 
-// BUG: addOutNeighbourUnique does not check from == to before inserting, so
+// BUG: addOutNeighborUnique does not check from == to before inserting, so
 // a caller can trivially create self-loops. Self-loops break the implicit
 // assumption that out-neighbours never point back at the owning node, and
 // any greedy search that steps through them will either waste an iteration
@@ -81,29 +77,27 @@ TEST(GraphContractRegression, SetOutNeighboursRespectsDegreeThreshold) {
 TEST(GraphContractRegression, AddOutNeighbourUniqueRejectsSelfLoop) {
   std::srand(0);
   Graph graph(4, 2);
-  graph.clearOutNeighbours(0);
+  graph.clearOutNeighbors(0);
 
-  graph.addOutNeighbourUnique(0, 0);
+  graph.addOutNeighborUnique(0, 0);
 
-  const auto &neighbours = graph.getOutNeighbours(0);
+  const auto &neighbours = graph.getOutNeighbors(0);
   EXPECT_EQ(std::count(neighbours.begin(), neighbours.end(), 0), 0)
-      << "addOutNeighbourUnique(0, 0) inserted a self-loop";
+      << "addOutNeighborUnique(0, 0) inserted a self-loop";
 }
 
-// BUG: getOutNeighbours returns a *mutable* reference to internal state, so
-// any caller can bypass every invariant check in addOutNeighbourUnique and
-// setOutNeighbours simply by push_back-ing arbitrary values (including
+// BUG: getOutNeighbors returns a *mutable* reference to internal state, so
+// any caller can bypass every invariant check in addOutNeighborUnique and
+// setOutNeighbors simply by push_back-ing arbitrary values (including
 // negative indices). The getter should either return const& or a copy.
 TEST(GraphContractRegression, GetOutNeighboursDoesNotExposeMutableInternalState) {
   std::srand(0);
   Graph graph(4, 2);
 
-  graph.getOutNeighbours(0).push_back(-42);
-
-  const auto &re_read = graph.getOutNeighbours(0);
-  EXPECT_EQ(std::count(re_read.begin(), re_read.end(), -42), 0)
-      << "mutating the getOutNeighbours reference leaked a -42 neighbour "
-         "back into the graph";
+  using returned_type =
+      decltype(std::declval<const Graph &>().getOutNeighbors(0));
+  EXPECT_TRUE((std::is_same_v<returned_type, const NodeList &>))
+      << "getOutNeighbors should expose read-only graph state";
 }
 
 // BUG: the path-based Graph constructor never checks stream state. A zero
@@ -132,7 +126,7 @@ TEST(GraphContractRegression, EmptyFileConstructorIsCleanlyHandled) {
       ::testing::ExitedWithCode(0), "");
 }
 
-// BUG: getOutNeighbours has no bounds check. A Graph(4, 2).getOutNeighbours(99)
+// BUG: getOutNeighbors has no bounds check. A Graph(4, 2).getOutNeighbors(99)
 // is undefined behaviour. The indexing operator should throw std::out_of_range
 // so caller bugs surface immediately rather than corrupting memory.
 TEST(GraphContractRegression, OutOfRangeGetOutNeighboursThrows) {
@@ -143,7 +137,7 @@ TEST(GraphContractRegression, OutOfRangeGetOutNeighboursThrows) {
       {
         alarm(3);
         try {
-          (void)graph.getOutNeighbours(99);
+          (void)graph.getOutNeighbors(99);
           // If the method silently returned (UB), treat as failure.
           std::exit(1);
         } catch (const std::exception &) {
@@ -207,16 +201,17 @@ TEST(UtilsContractRegression, IsValidPathReturnsFalseForDirectoriesAndEmptyInput
 // HDVector additional bugs
 // ============================================================================
 
-// BUG: HDVector's `dimentions` field used 32-bit signed storage, but the
+// BUG: HDVector's `dimensions` field used 32-bit signed storage, but the
 // value is assigned from `vec.size()` (size_t) or `const int64_t &`. That
 // storage silently narrows any caller-provided dimension beyond INT_MAX.
 // Expose the type mismatch at the API boundary.
 TEST(HDVectorContractRegression, DimensionAccessorExposesLongLongStorage) {
   HDVector v(std::vector<float>{1.0f, 2.0f, 3.0f});
-  using returned_type = std::remove_cvref_t<decltype(v.getDimention())>;
+  using returned_type =
+      std::remove_cv_t<std::remove_reference_t<decltype(v.getDimension())>>;
   EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>) ||
               (std::is_same_v<returned_type, std::size_t>))
-      << "HDVector::getDimention returns a 32-bit signed value, which silently narrows any "
+      << "HDVector::getDimension returns a 32-bit signed value, which silently narrows any "
          "dimension larger than INT_MAX";
 }
 
@@ -261,22 +256,24 @@ TEST(DataSetContractRegression, GetNReturnTypeMatchesLongLongStorage) {
   writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
   InMemoryDataSet ds(path);
 
-  using returned_type = std::remove_cvref_t<decltype(ds.getN())>;
+  using returned_type =
+      std::remove_cv_t<std::remove_reference_t<decltype(ds.getN())>>;
   EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>))
       << "InMemoryDataSet::getN() returns a 32-bit signed value, silently narrowing the "
          "dataset record-count member";
 }
 
-// BUG: same narrowing issue as above, but for getDimentions.
+// BUG: same narrowing issue as above, but for getDimensions.
 TEST(DataSetContractRegression, GetDimensionsReturnTypeMatchesLongLongStorage) {
   const auto path = uniqueFixturePath("dim_return_type");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
   InMemoryDataSet ds(path);
 
-  using returned_type = std::remove_cvref_t<decltype(ds.getDimentions())>;
+  using returned_type =
+      std::remove_cv_t<std::remove_reference_t<decltype(ds.getDimensions())>>;
   EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>))
-      << "InMemoryDataSet::getDimentions() returns a 32-bit signed value, silently narrowing "
+      << "InMemoryDataSet::getDimensions() returns a 32-bit signed value, silently narrowing "
          "the dataset dimension member";
 }
 
@@ -324,7 +321,7 @@ TEST(VamanaContractRegression, GraphWithExcessiveDegreeHasAllAvailableNeighbours
   Graph graph(5, 10);
 
   for (int64_t node = 0; node < 5; ++node) {
-    const auto &neighbours = graph.getOutNeighbours(node);
+    const auto &neighbours = graph.getOutNeighbors(node);
     EXPECT_EQ(neighbours.size(), 4U)
         << "node " << node << " had only " << neighbours.size()
         << " neighbours when 4 unique non-self neighbours were available; "
@@ -351,10 +348,10 @@ TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
   Vamana v(std::move(ds), 3);
 
   // Snapshot adjacency after the first build.
-  std::vector<std::vector<int64_t>> firstBuild(static_cast<size_t>(n));
+  std::vector<NodeList> firstBuild(static_cast<size_t>(n));
   for (int64_t i = 0; i < n; ++i) {
     auto &adjacency = firstBuild[static_cast<size_t>(i)];
-    adjacency = v.m_graph.getOutNeighbours(i);
+    adjacency = v.getOutNeighbors(i);
     std::sort(adjacency.begin(), adjacency.end());
   }
 
@@ -366,7 +363,7 @@ TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
 
   // Compare to the second build.
   for (int64_t i = 0; i < n; ++i) {
-    auto after = v.m_graph.getOutNeighbours(i);
+    auto after = v.getOutNeighbors(i);
     std::sort(after.begin(), after.end());
     EXPECT_EQ(firstBuild[static_cast<size_t>(i)], after)
         << "buildIndex is not idempotent for node " << i;
@@ -392,9 +389,9 @@ TEST(VamanaContractRegression, SetDistanceThresholdIsObservable) {
 
   v.setDistanceThreshold(2.5f);
 
-  // The public state is exposed as `m_distanceThreshold`. The fact that the
-  // API forces tests to reach into internal state is itself a smell.
-  EXPECT_FLOAT_EQ(v.m_distanceThreshold, 2.5f)
+  // The public getter makes the configured alpha observable without tests
+  // having to reach into internal state.
+  EXPECT_FLOAT_EQ(v.getDistanceThreshold(), 2.5f)
       << "alpha is no longer 2.5 after setDistanceThreshold(2.5)";
 }
 
@@ -416,7 +413,7 @@ TEST(VamanaContractRegression, GreedySearchDoesNotReturnInternalMarkers) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(15);
+  v.setSearchListSize(15);
 
   HDVector q(std::vector<float>{12.0f, -2.0f});
   SearchResults r = v.greedySearch(q, 5);
@@ -424,9 +421,9 @@ TEST(VamanaContractRegression, GreedySearchDoesNotReturnInternalMarkers) {
   // approximateNN must be strictly ascending by distance.
   for (size_t i = 1; i < r.approximateNN.size(); ++i) {
     const float before = HDVector::distance(
-        q, *v.m_dataSet->getRecordViewByIndex(r.approximateNN[i - 1]).vector);
+        q, *v.getRecordViewByIndex(r.approximateNN[i - 1]).vector);
     const float after = HDVector::distance(
-        q, *v.m_dataSet->getRecordViewByIndex(r.approximateNN[i]).vector);
+        q, *v.getRecordViewByIndex(r.approximateNN[i]).vector);
     EXPECT_LE(before, after)
         << "approximateNN[" << i - 1 << "] and approximateNN[" << i
         << "] are out of order";
@@ -448,7 +445,7 @@ TEST(VamanaContractRegression, GreedySearchIsDeterministicForIdenticalQueries) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(10);
+  v.setSearchListSize(10);
 
   HDVector q(std::vector<float>{25.0f, -5.0f});
   SearchResults first = v.greedySearch(q, 3);
@@ -474,9 +471,9 @@ TEST(VamanaContractRegression, PruneOnEmptyCandidateSetLeavesNodeStranded) {
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
 
-  std::vector<int64_t> candidates; // intentionally empty
+  NodeList candidates; // intentionally empty
   v.prune(0, candidates);
-  const auto &after = v.m_graph.getOutNeighbours(0);
+  const auto &after = v.getOutNeighbors(0);
 
   EXPECT_FALSE(after.empty())
       << "prune() cleared node 0's out-neighbours and never replaced them "
@@ -523,6 +520,6 @@ TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   Vamana v(std::move(ds), 3);
 
   HDVector bad(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
-  std::vector<int64_t> to;
+  NodeList to;
   EXPECT_THROW(v.insertIntoSet({1, 2}, to, bad), std::invalid_argument);
 }

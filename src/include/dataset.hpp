@@ -1,12 +1,15 @@
-#include "HDVector.hpp"
+#ifndef DATASET
+#define DATASET
+
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <vector>
+
+#include "HDVector.hpp"
 #include "node_types.hpp"
-#ifndef DATASET
-#define DATASET
+
 #define rowsize(x) (x*sizeof(float) + sizeof(int64_t))
 namespace fs = std::filesystem;
 
@@ -17,9 +20,9 @@ struct RecordView {
 
 class DataSet {
 protected:
-  uint64_t n;
-  uint64_t dimentions;
-  uint64_t storedDimentions;
+  uint64_t n = 0;
+  uint64_t dimensions = 0;
+  uint64_t storedDimensions = 0;
   std::fstream m_file;
 
 public:
@@ -32,7 +35,8 @@ public:
   virtual std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
   getNHDVectorsFromIndex(uint64_t index, uint64_t n) = 0;
   uint64_t getN() const { return this->n; }
-  uint64_t getDimentions() const { return this->dimentions; }
+  uint64_t getDimensions() const { return this->dimensions; }
+  uint64_t getStoredDimensions() const { return this->storedDimensions; }
 /*   virtual float distance(const int &vector1, const int &vector2) = 0; */
 };
 
@@ -44,7 +48,7 @@ public:
   getNRecordViewsFromIndex(uint64_t index, uint64_t n);
   std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
   getNHDVectorsFromIndex(uint64_t index, uint64_t n);
-  using DataSet::getDimentions;
+  using DataSet::getDimensions;
   using DataSet::getN;
 /*   float distance(const int &vector1, const int &vector2); */
 };
@@ -61,8 +65,9 @@ public:
   getNRecordViewsFromIndex(uint64_t index, uint64_t n);
   std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
   getNHDVectorsFromIndex(uint64_t index, uint64_t n);
-  using DataSet::getDimentions;
+  using DataSet::getDimensions;
   using DataSet::getN;
 /*   float distance(const int &vector1, const int &vector2); */
 };
-#endif
+
+#endif  // DATASET

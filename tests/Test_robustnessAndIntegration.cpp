@@ -148,17 +148,15 @@ TEST(GraphRobustness, PathConstructorReportsMissingFileAsAnError) {
       ::testing::ExitedWithCode(0), "");
 }
 
-// BUG: setOutNeighbours blindly stores whatever vector it is given, including
-// a self edge. addOutNeighbourUnique is careful to skip self-loops but the
+// BUG: setOutNeighbors blindly stores whatever vector it is given, including
+// a self edge. addOutNeighborUnique is careful to skip self-loops but the
 // setter is not.  This lets buggy callers poison the adjacency structure.
 TEST(GraphRobustness, SetOutNeighboursRejectsSelfLoop) {
   std::srand(0);
   Graph g(5, 2);
-  g.setOutNeighbours(0, {0, 1});
-  const auto &neighbours = g.getOutNeighbours(0);
-
-  EXPECT_EQ(std::count(neighbours.begin(), neighbours.end(), 0), 0)
-      << "setOutNeighbours accepted a self-loop without sanitising";
+  EXPECT_THROW(g.setOutNeighbors(0, {0, 1}), std::invalid_argument)
+      << "setOutNeighbors should reject self-loops instead of silently "
+         "accepting them";
 }
 
 // BUG: Graph has no constructor that validates a negative degree threshold.
@@ -186,8 +184,8 @@ TEST(GraphRobustness, ConstructorWithNegativeDegreeCompletesInReasonableTime) {
       ::testing::ExitedWithCode(0), "");
 }
 
-// BUG: the header validation only rejects storedDimentions < 1. A value of
-// exactly 1 passes, which makes dimentions = 0 and yields a dataset of
+// BUG: the header validation only rejects storedDimensions < 1. A value of
+// exactly 1 passes, which makes dimensions = 0 and yields a dataset of
 // zero-dimensional vectors.  Such a dataset cannot meaningfully participate
 // in an ANN index (every pair has distance zero).  The file format should
 // reject this degenerate case up front.
@@ -208,7 +206,7 @@ TEST(DataSetRobustness, StoredDimensionsEqualToOneIsRejected) {
   out.close();
 
   EXPECT_THROW(InMemoryDataSet ds(path), std::exception)
-      << "storedDimentions==1 means the records have zero actual vector "
+      << "storedDimensions==1 means the records have zero actual vector "
          "data; the loader should reject this degenerate file";
 }
 
@@ -230,7 +228,7 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
   FileDataSet onDisk(path);
 
   ASSERT_EQ(inMem.getN(), onDisk.getN());
-  ASSERT_EQ(inMem.getDimentions(), onDisk.getDimentions());
+  ASSERT_EQ(inMem.getDimensions(), onDisk.getDimensions());
 
   for (uint64_t i = 0; i < inMem.getN(); ++i) {
     auto a = inMem.getRecordViewByIndex(i);
@@ -238,8 +236,8 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
     ASSERT_NE(a.vector, nullptr);
     ASSERT_NE(b.vector, nullptr);
     EXPECT_EQ(a.recordId, b.recordId);
-    ASSERT_EQ(a.vector->getDimention(), b.vector->getDimention());
-    for (uint64_t d = 0; d < a.vector->getDimention(); ++d) {
+    ASSERT_EQ(a.vector->getDimension(), b.vector->getDimension());
+    for (uint64_t d = 0; d < a.vector->getDimension(); ++d) {
       EXPECT_FLOAT_EQ((*a.vector)[d], (*b.vector)[d])
           << "in-memory and on-disk loaders disagree at row " << i
           << " dim " << d;
@@ -248,7 +246,7 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
 }
 
 // BUG: FileDataSet does not close its file on failed construction.  If the
-// header check rejects the file (storedDimentions < 1), m_file remains open
+// header check rejects the file (storedDimensions < 1), m_file remains open
 // and leaks the underlying handle.  Constructing many bad datasets in a
 // tight loop would exhaust the process file descriptor table.  We cannot
 // observe the handle directly from user code, so instead we assert that
@@ -304,7 +302,7 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
     ASSERT_NE(vectorsOnly->at(offset), nullptr);
 
     EXPECT_EQ(single.recordId, range->at(offset).recordId);
-    for (uint64_t d = 0; d < single.vector->getDimention(); ++d) {
+    for (uint64_t d = 0; d < single.vector->getDimension(); ++d) {
       EXPECT_FLOAT_EQ((*single.vector)[d], (*range->at(offset).vector)[d]);
       EXPECT_FLOAT_EQ((*single.vector)[d], (*vectorsOnly->at(offset))[d]);
     }
@@ -373,10 +371,10 @@ TEST(VamanaRobustness, BuildIndexDoesNotSpamStdout) {
 
 // BUG: a query whose dimension does not match the dataset must be rejected
 // before the search starts.  Currently the algorithm happily pushes the
-// mediod into the result before running distance, and the error message
+// medoid into the result before running distance, and the error message
 // surfaces only when the algorithm tries to compute a distance -- at that
 // point callers have already paid part of the search cost.  Even worse, if
-// the mediod has no out-neighbours the search silently returns the mediod
+// the medoid has no out-neighbours the search silently returns the medoid
 // without ever checking the dimension.
 TEST(VamanaRobustness, GreedySearchRejectsMismatchedQueryDimensionImmediately) {
   const auto path = uniqueFixturePath("dim_mismatch");
@@ -390,7 +388,7 @@ TEST(VamanaRobustness, GreedySearchRejectsMismatchedQueryDimensionImmediately) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(4);
+  v.setSearchListSize(4);
 
   // Dataset vectors are 2-dimensional; this query has 5 dimensions.
   HDVector bad(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
@@ -415,7 +413,7 @@ TEST(VamanaRobustness, GreedySearchResultsAreWithinDatasetBounds) {
   auto ds = std::make_unique<InMemoryDataSet>(path);
   const uint64_t datasetSize = static_cast<uint64_t>(n);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(static_cast<int64_t>(datasetSize));
+  v.setSearchListSize(static_cast<int64_t>(datasetSize));
 
   HDVector q(std::vector<float>{12.5f, 7.5f});
   SearchResults r = v.greedySearch(q, 5);
@@ -480,7 +478,7 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
     std::srand(0);
     auto ds = std::make_unique<InMemoryDataSet>(path);
     Vamana v(std::move(ds), 3);
-    NodeList neighbours = v.m_graph.getOutNeighbours(node);
+    NodeList neighbours = v.getOutNeighbors(node);
     std::sort(neighbours.begin(), neighbours.end());
     return neighbours;
   };
@@ -494,7 +492,7 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   auto neighboursOfNoReset = [&path](NodeId node) {
     auto ds = std::make_unique<InMemoryDataSet>(path);
     Vamana v(std::move(ds), 3);
-    NodeList neighbours = v.m_graph.getOutNeighbours(node);
+    NodeList neighbours = v.getOutNeighbors(node);
     std::sort(neighbours.begin(), neighbours.end());
     return neighbours;
   };
@@ -568,9 +566,9 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
 
   for (size_t i = 1; i < to.size(); ++i) {
     const float before = HDVector::distance(
-        q, *v.m_dataSet->getRecordViewByIndex(to[i - 1]).vector);
+        q, *v.getRecordViewByIndex(to[i - 1]).vector);
     const float after = HDVector::distance(
-        q, *v.m_dataSet->getRecordViewByIndex(to[i]).vector);
+        q, *v.getRecordViewByIndex(to[i]).vector);
     EXPECT_LE(before, after)
         << "insertIntoSet produced an out-of-order pair at positions "
         << (i - 1) << " and " << i;
@@ -690,7 +688,7 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 6);
-  v.setSeachListSize(static_cast<int64_t>(rows.size()));
+  v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   const std::vector<float> query = {202.5f, -0.625f};
   HDVector q(query);
@@ -748,7 +746,7 @@ TEST(IntegrationRegression, SelfRecallIsPerfectAtLEqualsN) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 5);
-  v.setSeachListSize(static_cast<int64_t>(rows.size()));
+  v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   uint64_t misses = 0;
   for (size_t i = 0; i < rows.size(); ++i) {

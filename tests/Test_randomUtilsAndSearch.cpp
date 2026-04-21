@@ -59,13 +59,13 @@ TEST(VamanaSearchRegression, ExactRecallWhenSearchListEqualsDatasetSize) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 5);
-  v.setSeachListSize(15);
+  v.setSearchListSize(15);
 
   HDVector q(std::vector<float>{14.5f, -2.1f});
   const SearchResults r = v.greedySearch(q, 1);
   ASSERT_EQ(r.approximateNN.size(), 1U);
 
-  const auto rec = v.m_dataSet->getRecordViewByIndex(r.approximateNN[0]);
+  const auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
   EXPECT_NEAR(HDVector::distance(q, *rec.vector), 0.0f, 1.0e-6f)
       << "with L == N the exact nearest neighbour should be recoverable";
 }

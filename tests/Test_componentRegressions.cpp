@@ -164,14 +164,14 @@ TEST(HDVectorRegression, ZeroDimensionalVectorDistanceIsZero) {
 
 TEST(HDVectorRegression, ConstructorFromDimensionInitialisesZeros) {
   HDVector v(5);
-  ASSERT_EQ(v.getDimention(), 5);
+  ASSERT_EQ(v.getDimension(), 5);
   for (uint64_t i = 0; i < 5; ++i) {
     EXPECT_EQ(v[i], 0.0f);
   }
 }
 
 // =========================================================================
-// Graph bugs -- constructor truncation, mediod persistence, self edges.
+// Graph bugs -- constructor truncation, medoid persistence, self edges.
 // =========================================================================
 TEST(GraphRegression, RandomInitDoesNotProduceSelfEdges) {
   std::srand(0);
@@ -179,7 +179,7 @@ TEST(GraphRegression, RandomInitDoesNotProduceSelfEdges) {
   // achievable for every node, and no neighbour should point to itself.
   Graph g(16, 15);
   for (NodeId node = 0; node < 16; ++node) {
-    const auto &neighbours = g.getOutNeighbours(node);
+    const auto &neighbours = g.getOutNeighbors(node);
     for (NodeId neighbour : neighbours) {
       EXPECT_NE(neighbour, node)
           << "node " << node << " has a self-loop in the initial adjacency";
@@ -188,47 +188,47 @@ TEST(GraphRegression, RandomInitDoesNotProduceSelfEdges) {
 }
 
 TEST(GraphRegression, ConstructorFromPathPreservesMedoid) {
-  // Persisted graph with a known mediod. The on-disk mediod must be the
+  // Persisted graph with a known medoid. The on-disk medoid must be the
   // one returned after loading.
-  const auto path = uniqueFixturePath("graph_mediod");
+  const auto path = uniqueFixturePath("graph_medoid");
   ScopedFile cleanup{path};
 
   constexpr uint64_t node_count = 4;
   constexpr uint64_t degree = 2;
-  constexpr NodeId stored_mediod = 3;
-  writeGraphFile(path, node_count, degree, stored_mediod,
+  constexpr NodeId stored_medoid = 3;
+  writeGraphFile(path, node_count, degree, stored_medoid,
                  {{1, 2}, {0, 2}, {0, 1}, {0, 1}});
 
   // Isolate the crash-prone constructor from the rest of the test suite.
   const std::string graph_path = path.string();
-  auto mediod_probe = [&]() {
+  auto medoid_probe = [&]() {
     Graph g(graph_path);
-    std::exit(g.getMediod() == OptionalNodeId{stored_mediod} ? 0 : 1);
+    std::exit(g.getMedoid() == OptionalNodeId{stored_medoid} ? 0 : 1);
   };
-  EXPECT_EXIT(mediod_probe(), ::testing::ExitedWithCode(0), "")
-      << "mediod was regenerated randomly instead of read from disk, or "
+  EXPECT_EXIT(medoid_probe(), ::testing::ExitedWithCode(0), "")
+      << "medoid was regenerated randomly instead of read from disk, or "
          "the loader crashed before it could be observed";
 }
 
 TEST(GraphRegression, AddOutNeighbourUniqueDoesNotAllowSelfEdges) {
   std::srand(0);
   Graph g(5, 2);
-  g.clearOutNeighbours(0);
+  g.clearOutNeighbors(0);
 
   // An ANN graph must not introduce self-loops; the unique helper should
   // reject an attempt to add the node to its own adjacency.
-  g.addOutNeighbourUnique(0, 0);
-  const auto &neighbours = g.getOutNeighbours(0);
+  g.addOutNeighborUnique(0, 0);
+  const auto &neighbours = g.getOutNeighbors(0);
 
   EXPECT_EQ(std::count(neighbours.begin(), neighbours.end(), 0), 0)
-      << "addOutNeighbourUnique accepted a self edge";
+      << "addOutNeighborUnique accepted a self edge";
 }
 
 TEST(GraphRegression, ConstructorWithRZeroStaysDegreeZero) {
   std::srand(0);
   Graph g(6, 0);
   for (NodeId node = 0; node < 6; ++node) {
-    EXPECT_TRUE(g.getOutNeighbours(node).empty())
+    EXPECT_TRUE(g.getOutNeighbors(node).empty())
         << "node " << node << " has edges despite degree threshold 0";
   }
   EXPECT_EQ(g.getDegreeThreshold(), 0);
@@ -345,8 +345,8 @@ TEST(DataSetRegression, FileDataSetAllowsConcurrentReadsWithoutCorruption) {
 
   ASSERT_NE(first.vector, nullptr);
   ASSERT_NE(second.vector, nullptr);
-  ASSERT_EQ(first.vector->getDimention(), 2);
-  ASSERT_EQ(second.vector->getDimention(), 2);
+  ASSERT_EQ(first.vector->getDimension(), 2);
+  ASSERT_EQ(second.vector->getDimension(), 2);
   EXPECT_FLOAT_EQ((*first.vector)[0], (*second.vector)[0]);
   EXPECT_FLOAT_EQ((*first.vector)[1], (*second.vector)[1]);
   EXPECT_EQ(first.recordId, second.recordId);
@@ -369,14 +369,14 @@ TEST(VamanaRegression, ConstructorFromGraphDoesNotRebuildIndex) {
 
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Graph provided(n, 3);
-  provided.clearOutNeighbours(0);
-  provided.addOutNeighbourUnique(0, 1);
-  provided.addOutNeighbourUnique(0, 2);
+  provided.clearOutNeighbors(0);
+  provided.addOutNeighborUnique(0, 1);
+  provided.addOutNeighborUnique(0, 2);
 
   std::srand(0);
   Vamana v(std::move(ds), provided);
 
-  const auto &neighbours = v.m_graph.getOutNeighbours(0);
+  const auto &neighbours = v.getOutNeighbors(0);
   NodeList sorted(neighbours.begin(), neighbours.end());
   std::sort(sorted.begin(), sorted.end());
   const NodeList expected = {1, 2};
@@ -404,7 +404,7 @@ TEST(VamanaRegression, ConstructorFromSavedPathLoadsInsteadOfRebuilding) {
     adjacency[static_cast<size_t>(i)][0] = (i + 1) % node_count;
     adjacency[static_cast<size_t>(i)][1] = (i + node_count - 1) % node_count;
   }
-  writeGraphFile(graph_path, node_count, degree, /*mediod=*/0, adjacency);
+  writeGraphFile(graph_path, node_count, degree, /*medoid=*/0, adjacency);
 
   // Graph(path) currently seg-faults (it reads into zero-sized inner
   // vectors), so run the Vamana saved-path constructor inside a death
@@ -418,7 +418,7 @@ TEST(VamanaRegression, ConstructorFromSavedPathLoadsInsteadOfRebuilding) {
     Vamana v(std::move(ds), std::filesystem::path(graph_str));
 
     for (NodeId i = 0; i < node_count; ++i) {
-      const auto &neighbours = v.m_graph.getOutNeighbours(i);
+      const auto &neighbours = v.getOutNeighbors(i);
       NodeList sorted(neighbours.begin(), neighbours.end());
       std::sort(sorted.begin(), sorted.end());
       NodeList expected;
@@ -449,7 +449,7 @@ TEST(VamanaRegression, GreedySearchWithSmallSearchListStillTerminatesAndReturnsN
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(1);
+  v.setSearchListSize(1);
 
   HDVector query(std::vector<float>{210.0f, 110.0f});
   // With L == 1 the main loop may never advance, which would indicate a
@@ -470,7 +470,7 @@ TEST(VamanaRegression, GreedySearchIsDeterministicAcrossRepeatedCalls) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(n);
+  v.setSearchListSize(n);
 
   HDVector query(std::vector<float>{102.5f, 50.25f});
   SearchResults first = v.greedySearch(query, 3);
@@ -500,10 +500,10 @@ TEST(VamanaRegression, BuildIndexProducesIdenticalGraphForIdenticalInputs) {
   auto left = build();
   auto right = build();
 
-  for (NodeId node = 0; node < left->m_dataSet->getN();
+  for (NodeId node = 0; node < left->getNodeCount();
        ++node) {
-    NodeList lhs = left->m_graph.getOutNeighbours(node);
-    NodeList rhs = right->m_graph.getOutNeighbours(node);
+    NodeList lhs = left->getOutNeighbors(node);
+    NodeList rhs = right->getOutNeighbors(node);
     std::sort(lhs.begin(), lhs.end());
     std::sort(rhs.begin(), rhs.end());
     EXPECT_EQ(lhs, rhs)
@@ -511,8 +511,8 @@ TEST(VamanaRegression, BuildIndexProducesIdenticalGraphForIdenticalInputs) {
         << node;
   }
 
-  EXPECT_EQ(left->m_graph.getMediod(), right->m_graph.getMediod())
-      << "mediod selection is not deterministic across identical inputs";
+  EXPECT_EQ(left->getMedoid(), right->getMedoid())
+      << "medoid selection is not deterministic across identical inputs";
 }
 
 TEST(VamanaRegression, SearchReturnsKnownNearestNodesOnDeterministicGraph) {
@@ -528,11 +528,11 @@ TEST(VamanaRegression, SearchReturnsKnownNearestNodesOnDeterministicGraph) {
                     {3.0f, 3.0f, 0.0f},
                     {4.0f, 4.0f, 0.0f}});
 
-  // Fully connected graph with mediod 0. For query node 3 (vector {3, 0}),
+  // Fully connected graph with medoid 0. For query node 3 (vector {3, 0}),
   // the distances are:
   // node 3 -> 0, node 2 -> 1, node 4 -> 1, node 1 -> 4, node 0 -> 9.
   // With tie-break by node id, the top-3 must be {3, 2, 4}.
-  writeGraphFile(graph_path, 5, 4, /*mediod=*/0,
+  writeGraphFile(graph_path, 5, 4, /*medoid=*/0,
                  {{1, 2, 3, 4},
                   {0, 2, 3, 4},
                   {0, 1, 3, 4},
@@ -541,7 +541,7 @@ TEST(VamanaRegression, SearchReturnsKnownNearestNodesOnDeterministicGraph) {
 
   auto ds = std::make_unique<InMemoryDataSet>(dataset_path);
   Vamana v(std::move(ds), graph_path);
-  v.setSeachListSize(5);
+  v.setSearchListSize(5);
 
   const std::unique_ptr<NodeList> actual = v.search(/*queryNode=*/3, /*k=*/3);
 
@@ -567,7 +567,7 @@ TEST(VamanaRegression, GreedySearchDoesNotReturnDuplicateNodes) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 2);
-  v.setSeachListSize(8);
+  v.setSearchListSize(8);
 
   HDVector query(std::vector<float>{1.0f, 2.0f});
   SearchResults r = v.greedySearch(query, 5);
@@ -602,10 +602,10 @@ TEST(VamanaRegression, SavePersistsGraphThatLoadsBackIdentically) {
   v.save(graph_path);
 
   Graph loaded(graph_path);
-  EXPECT_EQ(loaded.getDegreeThreshold(), v.m_graph.getDegreeThreshold());
-  EXPECT_EQ(loaded.getMediod(), v.m_graph.getMediod());
-  for (NodeId node = 0; node < v.m_dataSet->getN(); ++node) {
-    EXPECT_EQ(loaded.getOutNeighbours(node), v.m_graph.getOutNeighbours(node))
+  EXPECT_EQ(loaded.getDegreeThreshold(), v.getDegreeThreshold());
+  EXPECT_EQ(loaded.getMedoid(), v.getMedoid());
+  for (NodeId node = 0; node < v.getNodeCount(); ++node) {
+    EXPECT_EQ(loaded.getOutNeighbors(node), v.getOutNeighbors(node))
         << "saved graph changed adjacency for node " << node;
   }
 }
@@ -633,9 +633,9 @@ TEST(VamanaRegression, InsertIntoSetDoesNotDuplicateExistingMembers) {
   std::sort(working.begin(), working.end(),
             [&v, &q](int64_t l, int64_t r) {
               const float ld =
-                  HDVector::distance(q, *v.m_dataSet->getRecordViewByIndex(l).vector);
+                  HDVector::distance(q, *v.getRecordViewByIndex(l).vector);
               const float rd =
-                  HDVector::distance(q, *v.m_dataSet->getRecordViewByIndex(r).vector);
+                  HDVector::distance(q, *v.getRecordViewByIndex(r).vector);
               if (ld == rd) {
                 return l < r;
               }
@@ -672,7 +672,7 @@ TEST(VamanaRegression, GreedySearchRecoversExactTopKOnTinyWellSeparatedClusters)
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(static_cast<int64_t>(rows.size()));
+  v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   const std::vector<float> query = {2001.0f, 1000.5f};
   HDVector q(query);
@@ -705,16 +705,16 @@ TEST(VamanaRegression, GreedySearchRecoversExactTopKOnTinyWellSeparatedClusters)
 }
 
 // =========================================================================
-// Mediod selection bugs -- the mediod is chosen via getRandomNumber, which
+// Mediod selection bugs -- the medoid is chosen via getRandomNumber, which
 // reseeds on every call, so every newly built index gets *the same* random
 // number regardless of the dataset.
 // =========================================================================
 TEST(VamanaRegression, MedoidDependsOnDatasetSize) {
-  // If the mediod truly reflects a representative point, two distinct
-  // datasets with different sizes cannot share exactly the same mediod
+  // If the medoid truly reflects a representative point, two distinct
+  // datasets with different sizes cannot share exactly the same medoid
   // index once it is drawn from a legitimate random source.
-  const auto path_small = uniqueFixturePath("mediod_small");
-  const auto path_large = uniqueFixturePath("mediod_large");
+  const auto path_small = uniqueFixturePath("medoid_small");
+  const auto path_large = uniqueFixturePath("medoid_large");
   ScopedFile cleanup_small{path_small};
   ScopedFile cleanup_large{path_large};
 
@@ -741,11 +741,11 @@ TEST(VamanaRegression, MedoidDependsOnDatasetSize) {
   Vamana v_large(std::move(large_ds), 3);
 
   // The small dataset can only index up to 5. The large dataset indexes
-  // up to 199. A correct mediod picker should almost always pick an index
+  // up to 199. A correct medoid picker should almost always pick an index
   // beyond 5 on the large dataset -- the buggy reseeded RNG keeps picking
   // the same tiny constant regardless of N.
-  EXPECT_NE(v_small.m_graph.getMediod(), v_large.m_graph.getMediod())
-      << "mediod selection ignores dataset size because getRandomNumber "
+  EXPECT_NE(v_small.getMedoid(), v_large.getMedoid())
+      << "medoid selection ignores dataset size because getRandomNumber "
          "reseeds with a constant every call";
 }
 
@@ -801,14 +801,14 @@ TEST(DataSetRegression, GetNRecordViewsFromIndexRejectsNegativeN) {
 }
 
 // =========================================================================
-// Graph mutation bugs -- clearOutNeighbours and addOutNeighbourUnique must
+// Graph mutation bugs -- clearOutNeighbors and addOutNeighborUnique must
 // honour bounds, and mutation on an uninitialised Graph must not crash.
 // =========================================================================
 TEST(GraphRegression, DefaultConstructedGraphRejectsAccess) {
   Graph g; // default-constructed; no adjacency or degree
   // Any public operation must degrade gracefully.  The current
   // implementation silently indexes into an empty vector.
-  EXPECT_THROW((void)g.getOutNeighbours(0), std::out_of_range);
+  EXPECT_THROW((void)g.getOutNeighbors(0), std::out_of_range);
 }
 
 TEST(GraphRegression, AddOutNeighbourUniqueRejectsOutOfRangeSource) {
@@ -821,7 +821,7 @@ TEST(GraphRegression, AddOutNeighbourUniqueRejectsOutOfRangeSource) {
     std::srand(0);
     Graph g(3, 1);
     try {
-      g.addOutNeighbourUnique(99, 0);
+      g.addOutNeighborUnique(99, 0);
     } catch (const std::out_of_range &) {
       std::exit(0);
     } catch (...) {
@@ -830,7 +830,7 @@ TEST(GraphRegression, AddOutNeighbourUniqueRejectsOutOfRangeSource) {
     std::exit(1);
   };
   EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
-      << "addOutNeighbourUnique on an out-of-range source must throw "
+      << "addOutNeighborUnique on an out-of-range source must throw "
          "out_of_range; currently it triggers undefined behaviour";
 }
 
@@ -839,7 +839,7 @@ TEST(GraphRegression, AddOutNeighbourUniqueRejectsOutOfRangeDestination) {
     std::srand(0);
     Graph g(3, 1);
     try {
-      g.addOutNeighbourUnique(0, 999);
+      g.addOutNeighborUnique(0, 999);
     } catch (const std::out_of_range &) {
       std::exit(0);
     } catch (...) {
@@ -856,7 +856,7 @@ TEST(GraphRegression, ClearOutNeighboursRejectsOutOfRangeNode) {
     std::srand(0);
     Graph g(3, 1);
     try {
-      g.clearOutNeighbours(999);
+      g.clearOutNeighbors(999);
     } catch (const std::out_of_range &) {
       std::exit(0);
     } catch (...) {
@@ -865,7 +865,7 @@ TEST(GraphRegression, ClearOutNeighboursRejectsOutOfRangeNode) {
     std::exit(1);
   };
   EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
-      << "clearOutNeighbours on an out-of-range node must throw";
+      << "clearOutNeighbors on an out-of-range node must throw";
 }
 
 TEST(GraphRegression, RandomInitRespectsEnoughCapacityInSmallGraph) {
@@ -874,7 +874,7 @@ TEST(GraphRegression, RandomInitRespectsEnoughCapacityInSmallGraph) {
   std::srand(0);
   Graph g(4, 3);
   for (int64_t node = 0; node < 4; ++node) {
-    EXPECT_EQ(g.getOutNeighbours(node).size(), 3U)
+    EXPECT_EQ(g.getOutNeighbors(node).size(), 3U)
         << "node " << node << " has fewer than R neighbours despite"
         << " enough unique candidates being available";
   }
@@ -929,13 +929,13 @@ TEST(VamanaRegression, BuildIndexWithSingleElementDatasetDoesNotCrash) {
   auto ds = std::make_unique<InMemoryDataSet>(path);
   // Building an index over a dataset of size 1 should produce a graph
   // containing that sole node without crashing.  The current buildIndex
-  // loop unconditionally calls getOutNeighbours on neighbour indices
+  // loop unconditionally calls getOutNeighbors on neighbour indices
   // generated by generateRandomNumbers(R, 1, node) which, with blacklist
   // equal to the only node, can emit spurious indices.
   Vamana v(std::move(ds), 2);
-  EXPECT_LE(v.m_graph.getOutNeighbours(0).size(), 2U);
+  EXPECT_LE(v.getOutNeighbors(0).size(), 2U);
   // The unique neighbour list must not include the node itself.
-  for (int64_t neighbour : v.m_graph.getOutNeighbours(0)) {
+  for (int64_t neighbour : v.getOutNeighbors(0)) {
     EXPECT_NE(neighbour, 0);
   }
 }
@@ -955,7 +955,7 @@ TEST(VamanaRegression, GreedySearchOnDegenerateAllEqualDatasetPicksAnyRecord) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(static_cast<int64_t>(rows.size()));
+  v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   HDVector q(std::vector<float>{0.0f, 0.0f});
   SearchResults r = v.greedySearch(q, 3);
@@ -963,7 +963,7 @@ TEST(VamanaRegression, GreedySearchOnDegenerateAllEqualDatasetPicksAnyRecord) {
 
   // Each returned neighbour must correspond to a zero-distance record.
   for (int64_t idx : r.approximateNN) {
-    auto rec = v.m_dataSet->getRecordViewByIndex(idx);
+    auto rec = v.getRecordViewByIndex(idx);
     EXPECT_FLOAT_EQ(HDVector::distance(q, *rec.vector), 0.0f);
   }
 
@@ -988,7 +988,7 @@ TEST(VamanaRegression, GreedySearchHonoursKLargerThanDatasetByReturningAll) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 2);
-  v.setSeachListSize(static_cast<int64_t>(rows.size()));
+  v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   HDVector q(std::vector<float>{1.5f, 1.5f});
   // Asking for k > N should return every record, not throw.
@@ -1011,7 +1011,7 @@ TEST(VamanaRegression, VisitedRecordReflectsActualTraversal) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(8);
+  v.setSearchListSize(8);
 
   HDVector q(std::vector<float>{7.0f, 3.5f});  // 2D query (dataset dims = 2)
   SearchResults r = v.greedySearch(q, 3);
@@ -1020,11 +1020,11 @@ TEST(VamanaRegression, VisitedRecordReflectsActualTraversal) {
   for (NodeId idx : r.visited) {
     EXPECT_LT(idx, rows.size());
   }
-  // The mediod is always visited first.
+  // The medoid is always visited first.
   ASSERT_FALSE(r.visited.empty());
-  ASSERT_TRUE(v.m_graph.getMediod().has_value());
-  EXPECT_EQ(r.visited.front(), v.m_graph.getMediod().value())
-      << "visited list does not start from the mediod";
+  ASSERT_TRUE(v.getMedoid().has_value());
+  EXPECT_EQ(r.visited.front(), v.getMedoid().value())
+      << "visited list does not start from the medoid";
 }
 
 TEST(VamanaRegression, GreedySearchReturnsEmptyWhenKIsZero) {
@@ -1041,7 +1041,7 @@ TEST(VamanaRegression, GreedySearchReturnsEmptyWhenKIsZero) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(6);
+  v.setSearchListSize(6);
 
   HDVector q(std::vector<float>{1.0f, 1.0f});
   // k == 0 must yield an empty candidate list, not leak the medoid.
@@ -1069,16 +1069,16 @@ TEST(VamanaRegression, BuildIndexProducesConnectedGraph) {
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
 
-  // BFS from the mediod
-  ASSERT_TRUE(v.m_graph.getMediod().has_value());
-  const NodeId medoid = v.m_graph.getMediod().value();
+  // BFS from the medoid
+  ASSERT_TRUE(v.getMedoid().has_value());
+  const NodeId medoid = v.getMedoid().value();
   std::vector<bool> reachable(rows.size(), false);
   NodeList frontier = {medoid};
   reachable[static_cast<size_t>(medoid)] = true;
   while (!frontier.empty()) {
     NodeList next;
     for (NodeId node : frontier) {
-      for (NodeId nb : v.m_graph.getOutNeighbours(node)) {
+      for (NodeId nb : v.getOutNeighbors(node)) {
         if (nb >= rows.size()) {
           FAIL() << "invalid neighbour index " << nb;
         }
@@ -1098,12 +1098,12 @@ TEST(VamanaRegression, BuildIndexProducesConnectedGraph) {
     }
   }
   EXPECT_EQ(unreachable, 0U)
-      << "graph is not connected from the mediod -- some records are "
+      << "graph is not connected from the medoid -- some records are "
          "unreachable and the ANN search can never find them";
 }
 
 // =========================================================================
-// More Vamana/Graph bugs -- bounds on degree threshold, mediod stability,
+// More Vamana/Graph bugs -- bounds on degree threshold, medoid stability,
 // set persistence, and post-build navigability.
 // =========================================================================
 TEST(VamanaRegression, BuildIndexWithDegreeThresholdGreaterThanN) {
@@ -1128,7 +1128,7 @@ TEST(VamanaRegression, BuildIndexWithDegreeThresholdGreaterThanN) {
   Vamana v(std::move(ds), 100);
 
   for (NodeId node = 0; node < 4; ++node) {
-    const auto &nb = v.m_graph.getOutNeighbours(node);
+    const auto &nb = v.getOutNeighbors(node);
     std::unordered_set<NodeId> unique(nb.begin(), nb.end());
     EXPECT_EQ(unique.size(), nb.size())
         << "node " << node << " has duplicate out-neighbours";
@@ -1160,7 +1160,7 @@ TEST(VamanaRegression, BuildIndexDoesNotLeaveOrphanEdges) {
   Vamana v(std::move(ds), 3);
 
   for (NodeId node = 0; node < 10; ++node) {
-    for (NodeId nb : v.m_graph.getOutNeighbours(node)) {
+    for (NodeId nb : v.getOutNeighbors(node)) {
       EXPECT_LT(nb, 10);
       EXPECT_NE(nb, node) << "node " << node << " has a self-loop";
     }
@@ -1168,7 +1168,7 @@ TEST(VamanaRegression, BuildIndexDoesNotLeaveOrphanEdges) {
 }
 
 TEST(VamanaRegression, SetSearchListSizeTakesEffect) {
-  // If setSeachListSize controls the exploration radius, a smaller value
+  // If setSearchListSize controls the exploration radius, a smaller value
   // must visit strictly fewer nodes on a complex query than a larger one.
   const auto path = uniqueFixturePath("listsize_effect");
   ScopedFile cleanup{path};
@@ -1186,10 +1186,10 @@ TEST(VamanaRegression, SetSearchListSizeTakesEffect) {
 
   HDVector q(std::vector<float>{50.0f, 70.0f});
 
-  v.setSeachListSize(3);
+  v.setSearchListSize(3);
   SearchResults small_list = v.greedySearch(q, 1);
 
-  v.setSeachListSize(30);
+  v.setSearchListSize(30);
   SearchResults big_list = v.greedySearch(q, 1);
 
   // A larger search list must explore at least as many nodes as a smaller one.
@@ -1214,8 +1214,8 @@ TEST(VamanaRegression, BuildIndexTerminatesOnDatasetWithOnlyTwoIdenticalPoints) 
   // only two nodes.
   Vamana v(std::move(ds), 1);
 
-  const auto &n0 = v.m_graph.getOutNeighbours(0);
-  const auto &n1 = v.m_graph.getOutNeighbours(1);
+  const auto &n0 = v.getOutNeighbors(0);
+  const auto &n1 = v.getOutNeighbors(1);
   // With two nodes and R=1 each should point at the other.
   ASSERT_LE(n0.size(), 1U);
   ASSERT_LE(n1.size(), 1U);
@@ -1288,13 +1288,13 @@ TEST(DataSetRegression, InMemoryAndFileDataSetProduceIdenticalRecords) {
   FileDataSet file_ds(path);
 
   ASSERT_EQ(mem_ds.getN(), file_ds.getN());
-  ASSERT_EQ(mem_ds.getDimentions(), file_ds.getDimentions());
+  ASSERT_EQ(mem_ds.getDimensions(), file_ds.getDimensions());
   for (uint64_t i = 0; i < mem_ds.getN(); ++i) {
     auto m = mem_ds.getRecordViewByIndex(i);
     auto f = file_ds.getRecordViewByIndex(i);
     EXPECT_EQ(m.recordId, f.recordId);
-    ASSERT_EQ(m.vector->getDimention(), f.vector->getDimention());
-    for (uint64_t d = 0; d < m.vector->getDimention(); ++d) {
+    ASSERT_EQ(m.vector->getDimension(), f.vector->getDimension());
+    for (uint64_t d = 0; d < m.vector->getDimension(); ++d) {
       EXPECT_FLOAT_EQ((*m.vector)[d], (*f.vector)[d])
           << "records differ at index " << i << " dimension " << d;
     }
@@ -1324,12 +1324,12 @@ TEST(DataSetRegression, FileDataSetReadAfterIndexRangeReturnsCorrectRecord) {
   ASSERT_NE(first.vector, nullptr);
   ASSERT_NE(second.vector, nullptr);
   EXPECT_EQ(first.recordId, second.recordId);
-  ASSERT_EQ(first.vector->getDimention(), second.vector->getDimention());
-  for (uint64_t d = 0; d < first.vector->getDimention(); ++d) {
+  ASSERT_EQ(first.vector->getDimension(), second.vector->getDimension());
+  for (uint64_t d = 0; d < first.vector->getDimension(); ++d) {
     EXPECT_FLOAT_EQ((*first.vector)[d], (*second.vector)[d]);
   }
   // Explicit ground truth check: record 2 must be {4.0f, 6.0f}.
-  ASSERT_EQ(second.vector->getDimention(), 2);
+  ASSERT_EQ(second.vector->getDimension(), 2);
   EXPECT_FLOAT_EQ((*second.vector)[0], 4.0f);
   EXPECT_FLOAT_EQ((*second.vector)[1], 6.0f);
 }
@@ -1354,7 +1354,7 @@ TEST(VamanaRegression, PrunePreservesAdjacencyBoundedByDegree) {
   NodeList candidates = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   v.prune(0, candidates);
 
-  const auto &nb = v.m_graph.getOutNeighbours(0);
+  const auto &nb = v.getOutNeighbors(0);
   EXPECT_LE(nb.size(), 2U) << "prune produced more than R neighbours";
   std::unordered_set<NodeId> unique(nb.begin(), nb.end());
   EXPECT_EQ(unique.size(), nb.size());
@@ -1403,7 +1403,7 @@ TEST(VamanaRegression, SaveSearchResultOrderingIsStable) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 3);
-  v.setSeachListSize(12);
+  v.setSearchListSize(12);
 
   const std::vector<float> payload = {4.5f, 9.0f};
   HDVector q1(payload);
@@ -1429,7 +1429,7 @@ TEST(VamanaRegression, GreedySearchVisitedListContainsNoDuplicates) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(10);
+  v.setSearchListSize(10);
 
   HDVector q(std::vector<float>{5.0f, 15.0f});
   SearchResults r = v.greedySearch(q, 3);
@@ -1453,7 +1453,7 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(20);
+  v.setSearchListSize(20);
 
   HDVector q(std::vector<float>{1.05f, 2.1f});
   SearchResults r = v.greedySearch(q, 10);
@@ -1461,7 +1461,7 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
 
   float prev = -1.0f;
   for (NodeId idx : r.approximateNN) {
-    auto rec = v.m_dataSet->getRecordViewByIndex(idx);
+    auto rec = v.getRecordViewByIndex(idx);
     const float d = HDVector::distance(q, *rec.vector);
     EXPECT_GE(d, prev)
         << "approximateNN not in ascending distance order at index " << idx;
@@ -1475,7 +1475,7 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
 // =========================================================================
 TEST(DataSetRegression, FileDataSetThrowsForTruncatedHeader) {
   // A file that is too small to contain the 16-byte header should be
-  // rejected instead of returning a nonsense N and dimentions.
+  // rejected instead of returning a nonsense N and dimensions.
   const auto path = uniqueFixturePath("truncated");
   ScopedFile cleanup{path};
 
@@ -1545,8 +1545,8 @@ TEST(VamanaRegression, BuildIndexAlphaAffectsNeighbourSelection) {
 
   bool any_diff = false;
   for (NodeId node = 0; node < 20; ++node) {
-    auto lhs = aggressive->m_graph.getOutNeighbours(node);
-    auto rhs = conservative->m_graph.getOutNeighbours(node);
+    auto lhs = aggressive->getOutNeighbors(node);
+    auto rhs = conservative->getOutNeighbors(node);
     std::sort(lhs.begin(), lhs.end());
     std::sort(rhs.begin(), rhs.end());
     if (lhs != rhs) {
@@ -1560,7 +1560,7 @@ TEST(VamanaRegression, BuildIndexAlphaAffectsNeighbourSelection) {
 
 TEST(VamanaRegression, GreedySearchFromRemoteQueryReturnsBestEffortCandidate) {
   // Query values far outside the data manifold should still return the
-  // closest actual record, not the mediod or a random neighbour.
+  // closest actual record, not the medoid or a random neighbour.
   const auto path = uniqueFixturePath("remote_query");
   ScopedFile cleanup{path};
 
@@ -1574,15 +1574,15 @@ TEST(VamanaRegression, GreedySearchFromRemoteQueryReturnsBestEffortCandidate) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(16);
+  v.setSearchListSize(16);
 
   HDVector far_query(std::vector<float>{1000.0f, 1000.0f});
   SearchResults r = v.greedySearch(far_query, 1);
   ASSERT_EQ(r.approximateNN.size(), 1U);
 
   // The largest indexed point is (15, 15), so that's the exact match.
-  auto rec = v.m_dataSet->getRecordViewByIndex(r.approximateNN[0]);
-  ASSERT_EQ(rec.vector->getDimention(), 2);
+  auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
+  ASSERT_EQ(rec.vector->getDimension(), 2);
   EXPECT_FLOAT_EQ((*rec.vector)[0], 15.0f);
   EXPECT_FLOAT_EQ((*rec.vector)[1], 15.0f);
 }
@@ -1615,7 +1615,7 @@ TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
   float prev = -1.0f;
   OptionalNodeId prev_id;
   for (NodeId idx : working) {
-    auto rec = v.m_dataSet->getRecordViewByIndex(idx);
+    auto rec = v.getRecordViewByIndex(idx);
     const float d = HDVector::distance(q, *rec.vector);
     if (d == prev) {
       ASSERT_TRUE(prev_id.has_value());
@@ -1630,7 +1630,7 @@ TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
 }
 
 TEST(VamanaRegression, MedoidIsWithinDatasetBounds) {
-  // The mediod returned by the graph must point to a valid record.
+  // The medoid returned by the graph must point to a valid record.
   const auto path = uniqueFixturePath("medoid_bounds");
   ScopedFile cleanup{path};
 
@@ -1645,11 +1645,11 @@ TEST(VamanaRegression, MedoidIsWithinDatasetBounds) {
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 2);
 
-  ASSERT_TRUE(v.m_graph.getMediod().has_value());
-  const NodeId m = v.m_graph.getMediod().value();
+  ASSERT_TRUE(v.getMedoid().has_value());
+  const NodeId m = v.getMedoid().value();
   EXPECT_LT(m, rows.size())
-      << "mediod refers to a record outside the dataset -- N="
-      << rows.size() << ", mediod=" << m;
+      << "medoid refers to a record outside the dataset -- N="
+      << rows.size() << ", medoid=" << m;
 }
 
 TEST(VamanaRegression, PruneOnEmptyCandidateSetProducesEmptyOutNeighbours) {
@@ -1668,11 +1668,11 @@ TEST(VamanaRegression, PruneOnEmptyCandidateSetProducesEmptyOutNeighbours) {
   Vamana v(std::move(ds), 3);
 
   // Seed an explicit state: clear out-neighbours of node 2 first.
-  v.m_graph.clearOutNeighbours(2);
+  v.clearOutNeighbors(2);
   NodeList empty_candidates;
   v.prune(2, empty_candidates);
 
-  EXPECT_TRUE(v.m_graph.getOutNeighbours(2).empty())
+  EXPECT_TRUE(v.getOutNeighbors(2).empty())
       << "prune on empty candidates still produced out-neighbours";
 }
 
@@ -1724,9 +1724,9 @@ TEST(DataSetRegression, GetNHDVectorsReturnsCountEqualToRequestedRange) {
   EXPECT_EQ(disk_vecs->size(), 5U);
 
   for (uint64_t i = 0; i < 5; ++i) {
-    ASSERT_EQ(mem_vecs->at(i)->getDimention(),
-              disk_vecs->at(i)->getDimention());
-    for (uint64_t d = 0; d < mem_vecs->at(i)->getDimention(); ++d) {
+    ASSERT_EQ(mem_vecs->at(i)->getDimension(),
+              disk_vecs->at(i)->getDimension());
+    for (uint64_t d = 0; d < mem_vecs->at(i)->getDimension(); ++d) {
       EXPECT_FLOAT_EQ((*mem_vecs->at(i))[d], (*disk_vecs->at(i))[d]);
     }
   }
@@ -1750,7 +1750,7 @@ TEST(VamanaRegression, NegativeSearchListSizeIsRejected) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 2);
-  EXPECT_ANY_THROW(v.setSeachListSize(-5));
+  EXPECT_ANY_THROW(v.setSearchListSize(-5));
 }
 
 TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset) {
@@ -1769,7 +1769,7 @@ TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset)
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 1);
-  v.setSeachListSize(1);
+  v.setSearchListSize(1);
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
   SearchResults r = v.greedySearch(q, 1);
@@ -1781,7 +1781,7 @@ TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset)
 // =========================================================================
 // Cluster-related tests -- validate the observable k-means helper steps.
 // =========================================================================
-#include "batch_stocastic_kmeans.hpp"
+#include "batch_stochastic_kmeans.hpp"
 TEST(KMeansRegression, GetClosestClusterReturnsNearestCenter) {
   auto makePoint = [](NodeId cluster_id, int64_t record_id,
                       std::vector<float> coordinates) {
@@ -1806,7 +1806,7 @@ TEST(KMeansRegression, GetClosestClusterReturnsNearestCenter) {
 }
 
 // =========================================================================
-// DataSet::getDimentions() truncates int64_t -> a 32-bit signed value the same way getN()
+// DataSet::getDimensions() truncates int64_t -> a 32-bit signed value the same way getN()
 // does.  Round-tripping a large stored dimension number reveals the bug.
 // =========================================================================
 TEST(DataSetRegression, GetDimensionsDoesNotSilentlyTruncateLargeDimension) {
@@ -1829,8 +1829,8 @@ TEST(DataSetRegression, GetDimensionsDoesNotSilentlyTruncateLargeDimension) {
   out.close();
 
   FileDataSet ds(path);
-  EXPECT_EQ(static_cast<int64_t>(ds.getDimentions()), huge_stored_dim - 1LL)
-      << "getDimentions() truncated a 64-bit stored dimension to 32 bits";
+  EXPECT_EQ(static_cast<int64_t>(ds.getDimensions()), huge_stored_dim - 1LL)
+      << "getDimensions() truncated a 64-bit stored dimension to 32 bits";
 }
 
 // =========================================================================
@@ -1845,17 +1845,17 @@ TEST(HDVectorRegression, ConstructorFromNegativeDimensionIsRejected) {
 }
 
 // =========================================================================
-// HDVector getDimention returns the stored dimension, but constructing an
+// HDVector getDimension returns the stored dimension, but constructing an
 // HDVector from a vector of size > INT_MAX would overflow a 32-bit signed
-// dimentions field.  The stored dimensions should match the vector size.
+// dimensions field.  The stored dimensions should match the vector size.
 // =========================================================================
 TEST(HDVectorRegression, GetDimensionReturnsConsistentValueAcrossCalls) {
   HDVector v(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
-  // Two back-to-back calls must return the same value.  If getDimention
+  // Two back-to-back calls must return the same value.  If getDimension
   // were to mutate state this would fail.
-  EXPECT_EQ(v.getDimention(), 5);
-  EXPECT_EQ(v.getDimention(), 5);
-  EXPECT_EQ(v.getDimention(), 5);
+  EXPECT_EQ(v.getDimension(), 5);
+  EXPECT_EQ(v.getDimension(), 5);
+  EXPECT_EQ(v.getDimension(), 5);
 }
 
 // =========================================================================
@@ -1905,7 +1905,7 @@ TEST(RandomUtilsRegression, GenerateRandomNumbersWithZeroNIsRejected) {
 }
 
 // =========================================================================
-// clusterize_data with an empty dataset must not invoke undefined
+// clusterizeData with an empty dataset must not invoke undefined
 // behaviour inside generateRandomNumbers (which then computes `% 0`).
 // =========================================================================
 TEST(KMeansRegression, ClusterizeDataDoesNotCrashOnEmptyDataset) {
@@ -1924,7 +1924,7 @@ TEST(KMeansRegression, ClusterizeDataDoesNotCrashOnEmptyDataset) {
   InMemoryDataSet ds(path);
   auto probe = [&ds]() {
     try {
-      clusterize_data(ds);
+      clusterizeData(ds);
       std::exit(0);
     } catch (...) {
       // Throwing is acceptable; crashing on `% 0` is not.
@@ -1932,7 +1932,7 @@ TEST(KMeansRegression, ClusterizeDataDoesNotCrashOnEmptyDataset) {
     }
   };
   EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
-      << "clusterize_data crashed on an empty dataset";
+      << "clusterizeData crashed on an empty dataset";
 }
 
 // =========================================================================
@@ -1949,24 +1949,24 @@ TEST(KMeansRegression, ClusterizeDataSingleClusterAssignsAllPointsAndSnapsCenter
                     {2.0f, 10.0f, 10.0f}});
 
   InMemoryDataSet ds(path);
-  const std::vector<Cluster> clusters = clusterize_data(ds, /*k=*/1, /*iterations=*/3);
+  const std::vector<Cluster> clusters = clusterizeData(ds, /*k=*/1, /*iterations=*/3);
 
   ASSERT_EQ(clusters.size(), 1u);
-  ASSERT_EQ(clusters[0].Points.size(), 3u);
+  ASSERT_EQ(clusters[0].points.size(), 3u);
 
   std::vector<int64_t> record_ids;
-  for (const Point &point : clusters[0].Points) {
-    EXPECT_EQ(point.ClusterId, 0u);
-    record_ids.push_back(point.Record.recordId);
+  for (const Point &point : clusters[0].points) {
+    EXPECT_EQ(point.clusterId, 0u);
+    record_ids.push_back(point.record.recordId);
   }
   std::sort(record_ids.begin(), record_ids.end());
   EXPECT_EQ(record_ids, (std::vector<int64_t>{0, 1, 2}));
 
-  EXPECT_EQ(clusters[0].center.ClusterId, 0u);
-  EXPECT_EQ(clusters[0].center.Record.recordId, 1);
-  ASSERT_NE(clusters[0].center.Record.vector, nullptr);
-  EXPECT_FLOAT_EQ((*clusters[0].center.Record.vector)[0], 2.0f);
-  EXPECT_FLOAT_EQ((*clusters[0].center.Record.vector)[1], 2.0f);
+  EXPECT_EQ(clusters[0].center.clusterId, 0u);
+  EXPECT_EQ(clusters[0].center.record.recordId, 1);
+  ASSERT_NE(clusters[0].center.record.vector, nullptr);
+  EXPECT_FLOAT_EQ((*clusters[0].center.record.vector)[0], 2.0f);
+  EXPECT_FLOAT_EQ((*clusters[0].center.record.vector)[1], 2.0f);
 }
 
 // =========================================================================
@@ -1983,7 +1983,7 @@ TEST(KMeansRegression, ClusterizeDataWithKEqualToDatasetSizeReturnsSingletonClus
                     {2.0f, 30.0f, 5.0f}});
 
   InMemoryDataSet ds(path);
-  const std::vector<Cluster> clusters = clusterize_data(ds, /*k=*/3, /*iterations=*/3);
+  const std::vector<Cluster> clusters = clusterizeData(ds, /*k=*/3, /*iterations=*/3);
 
   ASSERT_EQ(clusters.size(), 3u);
 
@@ -1991,12 +1991,12 @@ TEST(KMeansRegression, ClusterizeDataWithKEqualToDatasetSizeReturnsSingletonClus
   std::vector<int64_t> member_ids;
   for (uint64_t cluster_index = 0; cluster_index < clusters.size(); ++cluster_index) {
     const Cluster &cluster = clusters[static_cast<size_t>(cluster_index)];
-    ASSERT_EQ(cluster.Points.size(), 1u);
-    EXPECT_EQ(cluster.Points[0].ClusterId, cluster_index);
-    EXPECT_EQ(cluster.center.ClusterId, cluster_index);
-    EXPECT_EQ(cluster.center.Record.recordId, cluster.Points[0].Record.recordId);
-    center_ids.push_back(cluster.center.Record.recordId);
-    member_ids.push_back(cluster.Points[0].Record.recordId);
+    ASSERT_EQ(cluster.points.size(), 1u);
+    EXPECT_EQ(cluster.points[0].clusterId, cluster_index);
+    EXPECT_EQ(cluster.center.clusterId, cluster_index);
+    EXPECT_EQ(cluster.center.record.recordId, cluster.points[0].record.recordId);
+    center_ids.push_back(cluster.center.record.recordId);
+    member_ids.push_back(cluster.points[0].record.recordId);
   }
 
   std::sort(center_ids.begin(), center_ids.end());
@@ -2063,7 +2063,7 @@ TEST(KMeansRegression, ClusterizeDataRecoversFiveSeparatedClustersOnLargeDataset
   for (uint64_t attempt = 0; attempt < 8 && !observed_expected_partition; ++attempt) {
     InMemoryDataSet ds(path);
     const std::vector<Cluster> clusters =
-        clusterize_data(ds, /*k=*/5, /*iterations=*/20);
+        clusterizeData(ds, /*k=*/5, /*iterations=*/20);
 
     ASSERT_EQ(clusters.size(), 5u);
 
@@ -2075,17 +2075,17 @@ TEST(KMeansRegression, ClusterizeDataRecoversFiveSeparatedClustersOnLargeDataset
 
     for (uint64_t cluster_index = 0; cluster_index < clusters.size(); ++cluster_index) {
       const Cluster &cluster = clusters[static_cast<size_t>(cluster_index)];
-      all_non_empty = all_non_empty && !cluster.Points.empty();
+      all_non_empty = all_non_empty && !cluster.points.empty();
 
       std::array<int, 5> counts = {0, 0, 0, 0, 0};
       bool center_is_member = false;
-      for (const Point &point : cluster.Points) {
-        ASSERT_GE(point.Record.recordId, 0);
-        ASSERT_LT(static_cast<size_t>(point.Record.recordId), rows.size());
-        ++seen[static_cast<size_t>(point.Record.recordId)];
-        const int label = trueClusterId(point.Record.recordId);
+      for (const Point &point : cluster.points) {
+        ASSERT_GE(point.record.recordId, 0);
+        ASSERT_LT(static_cast<size_t>(point.record.recordId), rows.size());
+        ++seen[static_cast<size_t>(point.record.recordId)];
+        const int label = trueClusterId(point.record.recordId);
         ++counts[static_cast<size_t>(label)];
-        if (point.Record.recordId == cluster.center.Record.recordId) {
+        if (point.record.recordId == cluster.center.record.recordId) {
           center_is_member = true;
         }
       }
@@ -2110,7 +2110,7 @@ TEST(KMeansRegression, ClusterizeDataRecoversFiveSeparatedClustersOnLargeDataset
   }
 
   EXPECT_TRUE(observed_expected_partition)
-      << "clusterize_data did not recover the expected 5-way partition for "
+      << "clusterizeData did not recover the expected 5-way partition for "
          "a well-separated 128-point, 6-dimensional dataset across 8 "
          "attempts; best purity was "
       << best_purity << "/128. The likely cause is the hidden random "
@@ -2136,11 +2136,11 @@ TEST(KMeansRegression, NewCenterReturnsClusterPointClosestToMean) {
 
   const Point center = newCenter(cluster);
 
-  EXPECT_EQ(center.ClusterId, second.ClusterId);
-  EXPECT_EQ(center.Record.recordId, second.Record.recordId);
-  ASSERT_NE(center.Record.vector, nullptr);
-  EXPECT_FLOAT_EQ((*center.Record.vector)[0], 2.0f);
-  EXPECT_FLOAT_EQ((*center.Record.vector)[1], 2.0f);
+  EXPECT_EQ(center.clusterId, second.clusterId);
+  EXPECT_EQ(center.record.recordId, second.record.recordId);
+  ASSERT_NE(center.record.vector, nullptr);
+  EXPECT_FLOAT_EQ((*center.record.vector)[0], 2.0f);
+  EXPECT_FLOAT_EQ((*center.record.vector)[1], 2.0f);
 }
 
 // =========================================================================
@@ -2164,7 +2164,7 @@ TEST(VamanaRegression, ConstructorRejectsNullDataset) {
 
 // =========================================================================
 // Vamana::buildIndex on a dataset of size 0 must terminate and leave an
-// empty graph behind; today it attempts to mediod-pick via getRandomNumber
+// empty graph behind; today it attempts to medoid-pick via getRandomNumber
 // (0, -1) which is malformed.
 // =========================================================================
 TEST(VamanaRegression, BuildIndexOnEmptyDatasetTerminatesCleanly) {
@@ -2195,7 +2195,7 @@ TEST(VamanaRegression, BuildIndexOnEmptyDatasetTerminatesCleanly) {
 }
 
 // =========================================================================
-// Graph::getOutNeighbours returns a mutable reference.  Modifying the
+// Graph::getOutNeighbors returns a mutable reference.  Modifying the
 // returned reference must be visible to subsequent calls -- and, more
 // importantly, modifying it through a "read-only" alias is a smell the
 // API ought to eliminate.  We test that direct mutation doesn't
@@ -2204,18 +2204,18 @@ TEST(VamanaRegression, BuildIndexOnEmptyDatasetTerminatesCleanly) {
 TEST(GraphRegression, GetOutNeighboursIsNotSilentlyShared) {
   std::srand(0);
   Graph g(4, 2);
-  g.clearOutNeighbours(0);
-  g.addOutNeighbourUnique(0, 1);
-  g.addOutNeighbourUnique(0, 2);
+  g.clearOutNeighbors(0);
+  g.addOutNeighborUnique(0, 1);
+  g.addOutNeighborUnique(0, 2);
 
   // Pull a copy of the current adjacency, mutate the copy, and assert the
-  // graph is unchanged.  If getOutNeighbours returned something that
+  // graph is unchanged.  If getOutNeighbors returned something that
   // aliases internal storage through a smart-pointer share, mutating the
   // copy would inadvertently mutate the graph.
-  NodeList copy = g.getOutNeighbours(0);
+  NodeList copy = g.getOutNeighbors(0);
   copy.push_back(999);
 
-  const auto &actual = g.getOutNeighbours(0);
+  const auto &actual = g.getOutNeighbors(0);
   EXPECT_EQ(actual.size(), 2U) << "graph adjacency leaked through a shared"
                                   " return value";
   EXPECT_EQ(std::count(actual.begin(), actual.end(), 999), 0);
@@ -2300,14 +2300,14 @@ TEST(VamanaRegression, GreedySearchRecoversExactQueryMatchFromIndex) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(static_cast<int64_t>(rows.size()));
+  v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   // Query = record[5]'s payload values (not the id).
   HDVector q(std::vector<float>{5.0f * 3.14f, 5.0f * -1.41f});
   SearchResults r = v.greedySearch(q, 1);
 
   ASSERT_EQ(r.approximateNN.size(), 1U);
-  auto rec = v.m_dataSet->getRecordViewByIndex(r.approximateNN[0]);
+  auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
   EXPECT_FLOAT_EQ(HDVector::distance(q, *rec.vector), 0.0f)
       << "exact query payload didn't recover its own record";
 }
@@ -2333,7 +2333,7 @@ TEST(GraphRegression, ConstructorFromPathWithZeroDegreeDoesNotCrash) {
       std::exit(1);
     }
     for (NodeId node = 0; node < 3; ++node) {
-      if (!g.getOutNeighbours(node).empty()) {
+      if (!g.getOutNeighbors(node).empty()) {
         std::exit(2);
       }
     }
@@ -2367,7 +2367,7 @@ TEST(VamanaRegression, BuildIndexRespectsDegreeThresholdGlobally) {
   Vamana v(std::move(ds), R);
 
   for (NodeId node = 0; node < 30; ++node) {
-    const auto &nb = v.m_graph.getOutNeighbours(node);
+    const auto &nb = v.getOutNeighbors(node);
     EXPECT_LE(nb.size(), static_cast<size_t>(R))
         << "node " << node << " has " << nb.size()
         << " out-neighbours, exceeding the degree threshold " << R;
@@ -2375,7 +2375,7 @@ TEST(VamanaRegression, BuildIndexRespectsDegreeThresholdGlobally) {
 }
 
 // =========================================================================
-// DataSet: the storedDimentions field should round-trip through multiple
+// DataSet: the storedDimensions field should round-trip through multiple
 // identical file reads.  Reading the same file twice must report the same
 // dimension.
 // =========================================================================
@@ -2388,9 +2388,9 @@ TEST(DataSetRegression, FileDataSetDimensionIsStableAcrossReopens) {
 
   FileDataSet a(path);
   FileDataSet b(path);
-  EXPECT_EQ(a.getDimentions(), b.getDimentions());
+  EXPECT_EQ(a.getDimensions(), b.getDimensions());
   EXPECT_EQ(a.getN(), b.getN());
-  EXPECT_EQ(a.getDimentions(), 3);
+  EXPECT_EQ(a.getDimensions(), 3);
 }
 
 // =========================================================================
@@ -2446,7 +2446,7 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 4);
-  v.setSeachListSize(16);
+  v.setSearchListSize(16);
 
   HDVector q(std::vector<float>{7.2f, 7.2f});
   SearchResults r = v.greedySearch(q, 3);
@@ -2456,7 +2456,7 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
   int64_t truth = -1;
   float best = std::numeric_limits<float>::infinity();
   for (NodeId i = 0; i < static_cast<NodeId>(rows.size()); ++i) {
-    auto rec = v.m_dataSet->getRecordViewByIndex(i);
+    auto rec = v.getRecordViewByIndex(i);
     const float d = HDVector::distance(q, *rec.vector);
     if (d < best) {
       best = d;
@@ -2472,7 +2472,7 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
 // =========================================================================
 // DataSet: fixture writer writes stored dim == dim + 1, and each record
 // contains an int64_t id followed by the float payload. Reading a record must produce a
-// vector whose dimension equals getDimentions(), not the raw storedDim.
+// vector whose dimension equals getDimensions(), not the raw storedDim.
 // =========================================================================
 TEST(DataSetRegression, RecordVectorDimensionMatchesGetDimensions) {
   const auto path = uniqueFixturePath("dim_match");
@@ -2485,12 +2485,12 @@ TEST(DataSetRegression, RecordVectorDimensionMatchesGetDimensions) {
   InMemoryDataSet mem(path);
   FileDataSet disk(path);
 
-  ASSERT_EQ(mem.getDimentions(), 4);
-  ASSERT_EQ(disk.getDimentions(), 4);
+  ASSERT_EQ(mem.getDimensions(), 4);
+  ASSERT_EQ(disk.getDimensions(), 4);
 
   for (NodeId i = 0; i < 2; ++i) {
-    EXPECT_EQ(mem.getRecordViewByIndex(i).vector->getDimention(), 4);
-    EXPECT_EQ(disk.getRecordViewByIndex(i).vector->getDimention(), 4);
+    EXPECT_EQ(mem.getRecordViewByIndex(i).vector->getDimension(), 4);
+    EXPECT_EQ(disk.getRecordViewByIndex(i).vector->getDimension(), 4);
   }
 }
 
@@ -2536,7 +2536,7 @@ TEST(VamanaRegression, GreedySearchReturnsSinglePointForOnePointDataset) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 1);
-  v.setSeachListSize(1);
+  v.setSearchListSize(1);
 
   HDVector q(std::vector<float>{7.0f, 8.0f});
   SearchResults r = v.greedySearch(q, 1);
@@ -2573,7 +2573,7 @@ TEST(VamanaRegression, InsertIntoSetInsertsAtSortedPosition) {
 
   float prev_d = -1.0f;
   for (NodeId idx : working) {
-    auto rec = v.m_dataSet->getRecordViewByIndex(idx);
+    auto rec = v.getRecordViewByIndex(idx);
     const float d = HDVector::distance(q, *rec.vector);
     EXPECT_GE(d, prev_d)
         << "insertIntoSet produced an out-of-order sequence";
