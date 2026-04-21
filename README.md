@@ -92,7 +92,30 @@ The repository now includes a small benchmark harness for Phase 0 roadmap work:
 - `scripts/run_benchmarks.py`: runs a checked-in profile and aggregates results.
 - `benchmarks/local_smoke.json`: the default local profile over the deterministic fixture datasets.
 
-Run one benchmark directly:
+Quick start from a fresh checkout:
+
+```sh
+cmake -S . -B build
+cmake --build build --target sembed_benchmark embedding_fixtures
+cmake --build build --target benchmark_smoke
+```
+
+If you want to run the checked-in smoke profile without going through the custom CMake target, run:
+
+```sh
+python3 ./scripts/run_benchmarks.py \
+  --benchmark-binary ./build/sembed_benchmark \
+  --config ./benchmarks/local_smoke.json \
+  --build-dir ./build \
+  --output ./build/benchmark-report/local-smoke.json
+```
+
+That writes:
+
+- `build/benchmark-report/local-smoke.json`
+- `build/benchmark-report/artifacts/`
+
+Run one benchmark directly and write a single JSON result:
 
 ```sh
 ./build/sembed_benchmark \
@@ -104,19 +127,11 @@ Run one benchmark directly:
   --degree-threshold 32 \
   --search-list-size 64 \
   --distance-threshold 1.2 \
-  --artifact-dir ./build/benchmark-report/manual
+  --artifact-dir ./build/benchmark-report/manual \
+  --output ./build/benchmark-report/manual/vamana-gvec.json
 ```
 
-Run the checked-in smoke profile:
-
-```sh
-cmake --build build --target benchmark_smoke
-```
-
-That writes:
-
-- `build/benchmark-report/local-smoke.json`
-- `build/benchmark-report/artifacts/`
+Use `--algorithm bruteforce` to run the exact baseline instead of Vamana.
 
 The JSON report tracks the current Phase 0 metrics the engine can support today:
 
@@ -138,7 +153,7 @@ The smoke profile compares:
 
 against both `gvec.bin` and `w2v.bin`.
 
-If endpoint protection kills standalone binaries such as `sembed_benchmark`, the in-process `BenchmarkHarnessRuntime.*` GoogleTests still validate the harness logic, but the `benchmark_smoke` target will need the benchmark binary to be allowlisted before it can complete successfully.
+If endpoint protection such as CrowdStrike kills standalone binaries such as `sembed_benchmark`, the in-process `BenchmarkHarnessRuntime.*` GoogleTests still validate the harness logic, but `benchmark_smoke` and direct CLI runs will need the benchmark binary to be allowlisted before they can complete successfully.
 
 ## Public API Overview
 
