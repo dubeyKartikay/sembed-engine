@@ -1763,21 +1763,7 @@ TEST(VamanaRegression, NegativeSearchListSizeIsRejected) {
   std::srand(0);
   auto ds = std::make_unique<InMemoryDataSet>(path);
   Vamana v(std::move(ds), 2);
-  v.setSeachListSize(-5);
-
-  HDVector q(std::vector<float>{1.5f, 1.5f});
-  // Either the setter should reject a negative value, or greedySearch
-  // should produce a defined zero-element result.  Today it runs with a
-  // negative L and silently returns the medoid.
-  SearchResults r = v.greedySearch(q, 1);
-  // The test fails if approximateNN is larger than k or contains garbage.
-  EXPECT_LE(r.approximateNN.size(), 1U);
-  for (NodeId idx : r.approximateNN) {
-    EXPECT_LT(idx, 4U);
-  }
-  EXPECT_FALSE(r.approximateNN.empty())
-      << "negative search list size produced an empty result instead of "
-         "rejecting the input";
+  EXPECT_ANY_THROW(v.setSeachListSize(-5));
 }
 
 TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset) {

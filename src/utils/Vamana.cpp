@@ -9,11 +9,27 @@
 #include <unordered_set>
 #include <vector>
 
+namespace {
+uint64_t checkedDatasetNodeCount(const std::unique_ptr<DataSet> &dataSet) {
+  if (!dataSet) {
+    throw std::invalid_argument("dataset must not be null");
+  }
+  return dataSet->getN();
+}
+
+void validateDataset(const std::unique_ptr<DataSet> &dataSet) {
+  if (!dataSet) {
+    throw std::invalid_argument("dataset must not be null");
+  }
+}
+}  // namespace
+
 Vamana::Vamana(std::unique_ptr<DataSet> datset, uint64_t degreeThreshold,
                float distanceThreshold)
     : m_graph([&]() -> Graph {
-        return Graph(datset->getN(), degreeThreshold);
+        return Graph(checkedDatasetNodeCount(datset), degreeThreshold);
       }()) {
+  validateDataset(datset);
   m_dataSet = std::move(datset);
   m_distanceThreshold = distanceThreshold;
   m_searchListSize = 100;
@@ -22,6 +38,7 @@ Vamana::Vamana(std::unique_ptr<DataSet> datset, uint64_t degreeThreshold,
 Vamana::Vamana(std::unique_ptr<DataSet> dataSet, Graph Graph,
                float distanceThreshold)
     : m_graph(Graph) {
+  validateDataset(dataSet);
   m_dataSet = std::move(dataSet);
   m_distanceThreshold = distanceThreshold;
   m_searchListSize = 100;
@@ -29,6 +46,7 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, Graph Graph,
 Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
                float distanceThreshold)
     : m_graph(path) {
+  validateDataset(dataSet);
   m_dataSet = std::move(dataSet);
   m_distanceThreshold = distanceThreshold;
   m_searchListSize = 100;
