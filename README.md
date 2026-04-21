@@ -391,4 +391,164 @@ target_include_directories(my_app PRIVATE
 
 Then include the public headers from `src/include`.
 
+## Roadmap Toward Billion-Scale Search
 
+This project is currently a small single-node ANN engine. To scale toward
+billion-point workloads and compare credibly with production vector databases,
+the work should proceed in phases rather than as a single rewrite.
+
+### Phase 0: Establish a Benchmark Harness
+
+Before large architectural changes, the project needs a repeatable benchmark
+setup.
+
+- Integrate [ANN-Benchmarks](https://ann-benchmarks.com/) for small and
+  medium-scale evaluation.
+- Integrate
+  [BigANN](https://big-ann-benchmarks.com/neurips23.html) style datasets for
+  billion-scale runs.
+- Track at least:
+  - recall@k
+  - p50 and p95 latency
+  - queries per second
+  - build time
+  - RAM footprint
+  - SSD footprint
+  - insert throughput
+  - restart and recovery time
+- Add a brute-force baseline and at least one mature ANN baseline such as
+  Faiss/HNSW for local comparison.
+
+### Phase 1: Replace the Current Memory Layout
+
+The current object-per-vector and vector-of-vectors design is convenient for
+testing, but it does not scale.
+
+- Replace per-record heap allocations with contiguous vector storage.
+- Add memory-mapped dataset support for read-mostly serving paths.
+- Replace `std::vector<std::vector<NodeId>>` adjacency with a compact CSR-like
+  or page-aligned graph layout.
+- Use segment-local 32-bit identifiers where possible to reduce memory usage.
+- Introduce per-query scratch buffers and arena-style temporary allocation to
+  reduce allocator pressure in the hot path.
+
+### Phase 2: Make the Single-Node Engine Competitive
+
+The engine should become strong on one machine before adding cluster logic.
+
+- Add an in-memory graph index path that is competitive with modern HNSW-class
+  systems.
+- Add an SSD-backed graph index path inspired by DiskANN and Vamana:
+  - graph edges stored on disk
+  - compressed vectors stored in memory
+  - beam-style search
+  - asynchronous prefetch for graph and vector pages
+  - exact reranking on a small top candidate set
+- Replace repeated sorted-vector insert/erase operations in search with a
+  better frontier structure and cached distances.
+- Add SIMD-optimized distance kernels and avoid unnecessary `sqrt` in ranking
+  comparisons.
+
+### Phase 3: Add Compression and Reranking
+
+Compression is mandatory for practical hundred-million and billion-vector
+deployments.
+
+- Implement scalar quantization first.
+- Implement product quantization second.
+- Support compressed search with over-fetch and rerank on raw vectors.
+- Publish recall-versus-memory and recall-versus-latency curves for each
+  compression mode.
+
+### Phase 4: Turn the Library Into a Real Database Engine
+
+A credible vector database needs durable storage and operational safety, not
+just a fast search structure.
+
+- Add a write-ahead log.
+- Add mutable ingest segments and immutable sealed segments.
+- Add background compaction and rebuild pipelines.
+- Add snapshots, crash recovery, and versioned on-disk metadata.
+- Separate indexing threads from serving threads.
+- Provide a stable service API instead of relying on in-process-only usage.
+
+### Phase 5: Add Filters and Hybrid Retrieval
+
+Modern vector databases do more than pure dense ANN.
+
+- Add payload storage for structured metadata.
+- Add bitmap and inverted indexes for scalar filtering.
+- Add filter-aware ANN execution so filtering is integrated with retrieval
+  instead of applied only afterward.
+- Add sparse retrieval support and dense+sparse hybrid fusion.
+- Add support for multiple vector fields, and eventually multivector or
+  late-interaction retrieval.
+
+### Phase 6: Add Horizontal Scale
+
+After the single-node engine, storage model, and query semantics are solid, add
+distributed serving.
+
+- Add shard-local indexes and scatter/gather top-k query execution.
+- Add replication for availability and read throughput.
+- Add shard placement, rebalancing, snapshot restore, and failure recovery.
+- Add tenant-aware isolation and quota controls.
+- Evaluate whether the long-term architecture should remain partition-routed or
+  evolve toward a distributed global graph model.
+
+### Phase 7: Add Production Ergonomics
+
+To compare with state-of-the-art systems, the engine must also be observable
+and operable.
+
+- Add metrics, tracing, and query profiling.
+- Add admission control and backpressure.
+- Add benchmark dashboards and regression alarms.
+- Add rolling upgrade support.
+- Add compatibility tests for index version migration.
+- Add sustained-load tests that combine search, inserts, filtering, and restart
+  events.
+
+## Comparison Targets
+
+The practical goal is not just "support ANN", but to close specific gaps with
+current production systems.
+
+- Milvus: multiple dense index families, sparse indexes, scalar indexes, and a
+  DiskANN-style on-disk path.
+- Qdrant: real-time updates, quantization, payload filtering, distributed
+  deployment, and multivector retrieval.
+- Weaviate: hybrid search, vector compression, asynchronous indexing, sharding,
+  and replication.
+- Vespa: filter-aware nearest-neighbor search and phased reranking pipelines.
+
+These external comparison targets were checked against public documentation on
+April 21, 2026. They should be re-validated periodically as those systems
+evolve.
+
+## Recommended Execution Order
+
+The fastest credible path is:
+
+1. Win single-node benchmarks.
+2. Add compression and an SSD-backed search path.
+3. Add crash-safe segmented storage.
+4. Add filtering and hybrid retrieval.
+5. Add distributed serving and replication.
+
+## External References
+
+- [ANN-Benchmarks](https://ann-benchmarks.com/)
+- [BigANN benchmark](https://big-ann-benchmarks.com/neurips23.html)
+- [Milvus index selection](https://milvus.io/docs/ko/index_selection.md)
+- [Milvus DiskANN](https://blog.milvus.io/docs/diskann.md)
+- [Milvus scalar index](https://milvus.io/docs/scalar_index.md)
+- [Qdrant distributed deployment](https://qdrant.tech/documentation/operations/distributed_deployment/)
+- [Qdrant quantization](https://qdrant.tech/documentation/manage-data/quantization/)
+- [Qdrant search and hybrid queries](https://qdrant.tech/documentation/search/)
+- [Weaviate vector quantization](https://docs.weaviate.io/weaviate/concepts/vector-quantization)
+- [Weaviate hybrid search](https://docs.weaviate.io/weaviate/concepts/search/hybrid-search)
+- [Weaviate replication architecture](https://docs.weaviate.io/weaviate/concepts/replication-architecture)
+- [Vespa approximate ANN with HNSW](https://docs.vespa.ai/en/querying/approximate-nn-hnsw.html)
+- [Vespa phased ranking](https://docs.vespa.ai/en/phased-ranking.html)
+- [DistributedANN](https://www.microsoft.com/en-us/research/publication/distributedann/)
