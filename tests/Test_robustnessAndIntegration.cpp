@@ -59,7 +59,7 @@ std::vector<std::vector<float>> makeSmallClusteredRows(int64_t &outN,
 // HDVector deeper bugs
 // ============================================================================
 
-// BUG: HDVector::distance uses float*float arithmetic before accumulating into
+// BUG: Vector::distance uses float*float arithmetic before accumulating into
 // the double running total. Large magnitude inputs therefore overflow to +Inf
 // despite a double accumulator being available. A correct implementation would
 // widen the per-dimension difference to double before squaring.
@@ -67,7 +67,7 @@ TEST(HDVectorRobustness, DistanceDoesNotOverflowOnLargeMagnitudeInputs) {
   HDVector big(std::vector<float>{1.0e20f, 0.0f});
   HDVector origin(std::vector<float>{0.0f, 0.0f});
 
-  const float d = HDVector::distance(big, origin);
+  const float d = Vector::distance(big, origin);
   EXPECT_TRUE(std::isfinite(d))
       << "distance returned " << d
       << " for well-representable inputs; float*float overflowed before "
@@ -99,7 +99,7 @@ TEST(HDVectorRobustness, DistanceMatchesTheExpectedValueForMildlyLargeInputs) {
   HDVector b(right);
 
   // sqrt(sum_i (1e9)^2) = 1e9 * sqrt(16) = 4e9
-  const float d = HDVector::distance(a, b);
+  const float d = Vector::distance(a, b);
   EXPECT_NEAR(d, 4.0e9f, 1.0e3f)
       << "distance should be 4e9 for 16 dims each contributing (1e9)^2";
 }
@@ -272,7 +272,7 @@ TEST(DataSetRobustness, RepeatedFailedConstructionStaysReproducible) {
 }
 
 // BUG: RecordView vectors produced by getNRecordViewsFromIndex and
-// getNHDVectorsFromIndex must share the same data with
+// getNVectorsFromIndex must share the same data with
 // getRecordViewByIndex.  Any divergence is a serialisation or copy bug.
 TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
   const auto path = uniqueFixturePath("ranged_vs_single");
@@ -288,7 +288,7 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
 
   InMemoryDataSet ds(path);
   auto range = ds.getNRecordViewsFromIndex(1, 2);
-  auto vectorsOnly = ds.getNHDVectorsFromIndex(1, 2);
+  auto vectorsOnly = ds.getNVectorsFromIndex(1, 2);
   ASSERT_NE(range, nullptr);
   ASSERT_NE(vectorsOnly, nullptr);
   ASSERT_EQ(range->size(), 2U);
@@ -565,9 +565,9 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
   v.insertIntoSet({5, 3, 1, 4, 2, 0}, to, q);
 
   for (size_t i = 1; i < to.size(); ++i) {
-    const float before = HDVector::distance(
+    const float before = Vector::distance(
         q, *v.getRecordViewByIndex(to[i - 1]).vector);
-    const float after = HDVector::distance(
+    const float after = Vector::distance(
         q, *v.getRecordViewByIndex(to[i]).vector);
     EXPECT_LE(before, after)
         << "insertIntoSet produced an out-of-order pair at positions "

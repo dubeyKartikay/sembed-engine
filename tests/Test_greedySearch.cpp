@@ -1,5 +1,6 @@
 #include <algorithm>
 
+#include "HDVector.hpp"
 #include "test_utils.hpp"
 #include "vamana.hpp"
 #include <cmath>

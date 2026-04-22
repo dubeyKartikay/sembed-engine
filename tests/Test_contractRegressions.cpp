@@ -215,14 +215,14 @@ TEST(HDVectorContractRegression, DimensionAccessorExposesLongLongStorage) {
          "dimension larger than INT_MAX";
 }
 
-// BUG: HDVector::distance on two identical vectors should return exactly 0.
+// BUG: Vector::distance on two identical vectors should return exactly 0.
 // Any non-zero residue points at either the float-precision loss bug or an
 // unstable accumulator. This is our canonical sanity check.
 TEST(HDVectorContractRegression, DistanceOfIdenticalLargeVectorsIsExactlyZero) {
   std::vector<float> data(32, 1.0e7f);
   HDVector a(data);
   HDVector b(data);
-  EXPECT_FLOAT_EQ(HDVector::distance(a, b), 0.0f);
+  EXPECT_FLOAT_EQ(Vector::distance(a, b), 0.0f);
 }
 
 // BUG: distance must satisfy the triangle inequality d(a,c) <= d(a,b) + d(b,c).
@@ -234,9 +234,9 @@ TEST(HDVectorContractRegression, DistanceObeysTriangleInequality) {
   HDVector b(std::vector<float>{3.0f, 4.0f});
   HDVector c(std::vector<float>{6.0f, 8.0f});
 
-  const float ab = HDVector::distance(a, b);
-  const float bc = HDVector::distance(b, c);
-  const float ac = HDVector::distance(a, c);
+  const float ab = Vector::distance(a, b);
+  const float bc = Vector::distance(b, c);
+  const float ac = Vector::distance(a, c);
   EXPECT_LE(ac, ab + bc + 1e-4f)
       << "triangle inequality violated: d(a,c)=" << ac
       << ", d(a,b)+d(b,c)=" << ab + bc;
@@ -420,9 +420,9 @@ TEST(VamanaContractRegression, GreedySearchDoesNotReturnInternalMarkers) {
 
   // approximateNN must be strictly ascending by distance.
   for (size_t i = 1; i < r.approximateNN.size(); ++i) {
-    const float before = HDVector::distance(
+    const float before = Vector::distance(
         q, *v.getRecordViewByIndex(r.approximateNN[i - 1]).vector);
-    const float after = HDVector::distance(
+    const float after = Vector::distance(
         q, *v.getRecordViewByIndex(r.approximateNN[i]).vector);
     EXPECT_LE(before, after)
         << "approximateNN[" << i - 1 << "] and approximateNN[" << i
@@ -504,7 +504,7 @@ TEST(VamanaContractRegression, IsToBePrunedWithZeroAlphaAlwaysPrunes) {
 
 // BUG: inserting a mismatched-dimension query node anywhere in the algorithm
 // should surface as std::invalid_argument.  prune ultimately calls
-// insertIntoSet which calls HDVector::distance; if the dimensions disagree,
+// insertIntoSet which calls Vector::distance; if the dimensions disagree,
 // an std::invalid_argument exception is expected.
 TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   const auto path = uniqueFixturePath("dim_mismatch_insert");

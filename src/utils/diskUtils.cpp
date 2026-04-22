@@ -58,7 +58,7 @@ RecordView FileDataSet::getRecordViewByIndex(uint64_t index) {
   }
 
   std::vector<char> buffer(rowsize(dimensions), 0);
-  std::shared_ptr<HDVector> vector =
+  std::shared_ptr<Vector> vector =
       std::make_shared<HDVector>(getDimensions());
   m_file.clear();
   m_file.seekg(STARTING_HEADER_OFFSET +
@@ -100,7 +100,7 @@ FileDataSet::getNRecordViewsFromIndex(uint64_t index, uint64_t n) {
   }
 
   for (uint64_t i = 0; i < n; ++i) {
-    std::shared_ptr<HDVector> vector_floats =
+    std::shared_ptr<Vector> vector_floats =
         std::make_shared<HDVector>(dimensions);
     int64_t id = 0;
     const char *record =
@@ -114,11 +114,11 @@ FileDataSet::getNRecordViewsFromIndex(uint64_t index, uint64_t n) {
   return records;
 }
 
-std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
-FileDataSet::getNHDVectorsFromIndex(uint64_t index, uint64_t n) {
+std::unique_ptr<std::vector<std::shared_ptr<Vector>>>
+FileDataSet::getNVectorsFromIndex(uint64_t index, uint64_t n) {
   auto records = getNRecordViewsFromIndex(index, n);
-  std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> vec =
-      std::make_unique<std::vector<std::shared_ptr<HDVector>>>();
+  std::unique_ptr<std::vector<std::shared_ptr<Vector>>> vec =
+      std::make_unique<std::vector<std::shared_ptr<Vector>>>();
   vec->reserve(records->size());
   for (const RecordView &record : *records) {
     vec->push_back(record.vector);

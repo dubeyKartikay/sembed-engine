@@ -4,7 +4,8 @@
 
 It provides:
 
-- `HDVector`, a dense floating-point vector type with Euclidean distance.
+- `Vector`, an abstract interface for dense vector operations.
+- `HDVector`, the default dense floating-point `Vector` implementation.
 - `FileDataSet` and `InMemoryDataSet` loaders for binary embedding corpora.
 - A Vamana-style graph index for approximate nearest neighbor search.
 - Graph persistence with truncated-file, bad-adjacency, and trailing-byte checks.
@@ -216,6 +217,7 @@ captured directly in CI.
 
 The main headers are:
 
+- [`src/include/Vector.hpp`](src/include/Vector.hpp)
 - [`src/include/HDVector.hpp`](src/include/HDVector.hpp)
 - [`src/include/dataset.hpp`](src/include/dataset.hpp)
 - [`src/include/graph.hpp`](src/include/graph.hpp)
@@ -246,7 +248,7 @@ int main() {
   float firstValue = (*record.vector)[0];
 
   auto batch = dataset->getNRecordViewsFromIndex(10, 5);
-  auto vectors = dataset->getNHDVectorsFromIndex(10, 5);
+  auto vectors = dataset->getNVectorsFromIndex(10, 5);
 }
 ```
 
@@ -257,7 +259,7 @@ Key methods:
 - `getStoredDimensions()`: raw on-disk row width including the record id slot
 - `getRecordViewByIndex(i)`: fetch one record
 - `getNRecordViewsFromIndex(i, count)`: fetch a contiguous range
-- `getNHDVectorsFromIndex(i, count)`: fetch only the vectors from a range
+- `getNVectorsFromIndex(i, count)`: fetch only the vectors from a range
 
 Trade-offs:
 
@@ -267,14 +269,20 @@ Trade-offs:
   you want lower resident memory at the cost of repeated file I/O.
 - An mmap-backed loader is a future improvement and is not implemented yet.
 
-### 2. Vector math with `HDVector`
+### 2. Vector math with `Vector`
 
-`HDVector` stores a dense `std::vector<float>` and exposes:
+`Vector` is the abstract interface used by datasets and search APIs. It exposes:
+
+- `getDataPointer()` for contiguous dense storage access
+- `getDimension()` for dimensionality
+- bounds-checked indexing via `operator[]`
+- Euclidean distance with `Vector::distance(a, b)`
+
+`HDVector` is the built-in dense implementation backed by `std::vector<float>`
+and adds:
 
 - construction from a dimension count
 - construction from an existing `std::vector<float>`
-- bounds-checked indexing via `operator[]`
-- Euclidean distance with `HDVector::distance(a, b)`
 
 Example:
 
@@ -284,7 +292,7 @@ Example:
 HDVector a(std::vector<float>{1.0f, 2.0f});
 HDVector b(std::vector<float>{4.0f, 6.0f});
 
-float d = HDVector::distance(a, b);  // 5.0
+float d = Vector::distance(a, b);  // 5.0
 ```
 
 ### 3. Building and querying a Vamana index
@@ -293,11 +301,12 @@ Construct an index from a dataset:
 
 ```cpp
 #include <memory>
+#include "HDVector.hpp"
 #include "dataset.hpp"
 #include "vamana.hpp"
 
 auto dataset = std::make_unique<InMemoryDataSet>("build/gvec.bin");
-HDVector query = *dataset->getRecordViewByIndex(42).vector;
+HDVector query(std::vector<float>{1.0f, 2.0f, 3.0f});
 
 Vamana index(std::move(dataset), /*R=*/64, /*alpha=*/1.2f);
 index.setSearchListSize(100);
@@ -320,7 +329,7 @@ Important knobs:
 Important methods:
 
 - `buildIndex()`: rebuild the graph from a fresh deterministic seed
-- `greedySearch(query, k)`: search using an arbitrary `HDVector`
+- `greedySearch(query, k)`: search using an arbitrary `Vector`
 - `search(queryNode, k)`: search using an existing dataset node as the query
 - `save(path)`: persist the graph
 - `getMedoid()`, `getOutNeighbors(node)`, `getDegreeThreshold()`: inspect the built graph without reaching into internal fields
@@ -438,7 +447,7 @@ where:
 - `D` is the embedding dimensionality
 - `x` and `y` are embedding vectors
 
-The implementation computes this in `HDVector::distance`.
+The implementation computes this in `Vector::distance`.
 
 ### Graph construction
 

@@ -1,5 +1,6 @@
 #include "batch_stochastic_kmeans.hpp"
 
+#include "HDVector.hpp"
 #include "dataset.hpp"
 #include "node_types.hpp"
 #include "utils.hpp"

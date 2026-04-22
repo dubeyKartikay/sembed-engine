@@ -61,7 +61,7 @@ TYPED_TEST(DataSetBoundaryTest, AllowsEmptyRangesAtDatasetBoundary) {
   ASSERT_NE(records, nullptr);
   EXPECT_TRUE(records->empty());
 
-  auto vectors = dataSet->getNHDVectorsFromIndex(this->fixture.rows.size(), 0);
+  auto vectors = dataSet->getNVectorsFromIndex(this->fixture.rows.size(), 0);
   ASSERT_NE(vectors, nullptr);
   EXPECT_TRUE(vectors->empty());
 }
@@ -85,7 +85,7 @@ TEST(HDVectorBoundary, DistanceRejectsMismatchedDimensions) {
   HDVector left(std::vector<float>{1.0f, 2.0f});
   HDVector right(std::vector<float>{1.0f, 2.0f, 3.0f});
 
-  EXPECT_THROW((void)HDVector::distance(left, right), std::invalid_argument);
+  EXPECT_THROW((void)Vector::distance(left, right), std::invalid_argument);
 }
 
 TEST(GraphMutation, AddOutNeighbourUniqueSkipsDuplicatesAndClearRemovesEdges) {

@@ -95,7 +95,7 @@ TYPED_TEST(DataSetApiTest, ReturnsContiguousRecordRangesFromIndex) {
 TYPED_TEST(DataSetApiTest, ReturnsContiguousVectorRangesFromIndex) {
   auto dataSet = this->makeDataSet();
 
-  auto vectors = dataSet->getNHDVectorsFromIndex(1, 2);
+  auto vectors = dataSet->getNVectorsFromIndex(1, 2);
 
   ASSERT_NE(vectors, nullptr);
   ASSERT_EQ(vectors->size(), 2U);

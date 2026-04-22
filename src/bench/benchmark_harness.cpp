@@ -84,7 +84,15 @@ Json jsonOptionalPath(const std::optional<std::filesystem::path> &value) {
   return value ? Json(value->string()) : Json(nullptr);
 }
 
-float squaredDistance(const HDVector &left, const HDVector &right) {
+HDVector copyIntoHDVector(const Vector &source) {
+  std::vector<float> values(static_cast<size_t>(source.getDimension()), 0.0f);
+  for (uint64_t dim = 0; dim < source.getDimension(); ++dim) {
+    values[static_cast<size_t>(dim)] = source[static_cast<int64_t>(dim)];
+  }
+  return HDVector(values);
+}
+
+float squaredDistance(const Vector &left, const Vector &right) {
   if (left.getDimension() != right.getDimension()) {
     throw std::invalid_argument("vector dimensions must match");
   }
@@ -111,7 +119,7 @@ std::unique_ptr<DataSet> makeDataSet(BenchmarkDataSetMode mode,
   throw std::invalid_argument("unsupported dataset mode");
 }
 
-NodeList exactNearestNeighbors(DataSet &baseDataSet, const HDVector &queryVector,
+NodeList exactNearestNeighbors(DataSet &baseDataSet, const Vector &queryVector,
                                uint64_t k, OptionalNodeId excludedBaseNode) {
   std::vector<std::pair<float, NodeId>> ranked;
   ranked.reserve(static_cast<size_t>(baseDataSet.getN()));
@@ -167,7 +175,7 @@ std::vector<QueryWorkloadEntry> buildQueryWorkload(
 
   for (NodeId queryIndex : queryIndices) {
     const RecordView queryRecord = queryDataSet.getRecordViewByIndex(queryIndex);
-    workload.push_back({queryIndex, *queryRecord.vector,
+    workload.push_back({queryIndex, copyIntoHDVector(*queryRecord.vector),
                         excludeSelf ? OptionalNodeId(queryIndex)
                                     : std::nullopt});
   }

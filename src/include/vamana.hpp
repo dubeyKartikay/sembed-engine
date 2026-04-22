@@ -14,10 +14,10 @@
 class Vamana {
 public:
   void prune(NodeId node, NodeList &candidateSet);
-  SearchResults greedySearch(const HDVector &queryNode, uint64_t k);
+  SearchResults greedySearch(const Vector &queryNode, uint64_t k);
   void insertIntoSet(const NodeList &NOut,
                      NodeList &ANNset,
-                     const HDVector &nod);
+                     const Vector &nod);
   Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
          float distanceThreshold = 1.2f);
   Vamana(std::unique_ptr<DataSet> dataSet, Graph graph,

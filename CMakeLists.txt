@@ -28,6 +28,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 add_library(utils STATIC
+    src/utils/Vector.cpp
     src/utils/randomUtils.cpp
     src/utils/inMemDataset.cpp
     src/utils/diskUtils.cpp

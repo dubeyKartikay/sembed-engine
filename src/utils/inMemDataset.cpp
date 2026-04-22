@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "HDVector.hpp"
 #include "utils.hpp"
 
 InMemoryDataSet::InMemoryDataSet(fs::path path) {
@@ -55,7 +56,7 @@ void InMemoryDataSet::readDataFromFile() {
   }
   m_records.reserve(static_cast<size_t>(getN()));
   for (uint64_t i = 0; i < getN(); ++i) {
-    std::shared_ptr<HDVector> hdv = std::make_shared<HDVector>(dimensions);
+    std::shared_ptr<Vector> hdv = std::make_shared<HDVector>(dimensions);
     int64_t id = 0;
     std::memcpy(&id, buffer.data() + i * rowsize(dimensions),
                 sizeof(int64_t));
@@ -81,11 +82,11 @@ InMemoryDataSet::getNRecordViewsFromIndex(uint64_t index, uint64_t n) {
       this->m_records.begin() + static_cast<std::ptrdiff_t>(index + n));
 }
 
-std::unique_ptr<std::vector<std::shared_ptr<HDVector>>>
-InMemoryDataSet::getNHDVectorsFromIndex(uint64_t index, uint64_t n) {
+std::unique_ptr<std::vector<std::shared_ptr<Vector>>>
+InMemoryDataSet::getNVectorsFromIndex(uint64_t index, uint64_t n) {
   auto records = getNRecordViewsFromIndex(index, n);
-  std::unique_ptr<std::vector<std::shared_ptr<HDVector>>> vec =
-      std::make_unique<std::vector<std::shared_ptr<HDVector>>>();
+  std::unique_ptr<std::vector<std::shared_ptr<Vector>>> vec =
+      std::make_unique<std::vector<std::shared_ptr<Vector>>>();
   vec->reserve(records->size());
   for (const RecordView &record : *records) {
     vec->push_back(record.vector);

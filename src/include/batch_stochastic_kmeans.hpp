@@ -12,11 +12,11 @@ struct Point {
   RecordView record;
 
   float distance(const Point &other) const {
-    return HDVector::distance(*record.vector, *other.record.vector);
+    return Vector::distance(*record.vector, *other.record.vector);
   }
 
   float distance(const RecordView &other) const {
-    return HDVector::distance(*record.vector, *other.vector);
+    return Vector::distance(*record.vector, *other.vector);
   }
 };
 
