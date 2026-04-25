@@ -1,12 +1,11 @@
 #include "batch_stochastic_kmeans.hpp"
 
-#include "HDVector.hpp"
 #include "dataset.hpp"
 #include "node_types.hpp"
 #include "utils.hpp"
+#include "vector_view.hpp"
 
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 std::vector<Cluster> clusterizeData(DataSet &dataSet, uint64_t k,
@@ -49,14 +48,14 @@ std::vector<Cluster> clusterizeData(DataSet &dataSet, uint64_t k,
 }
 
 uint64_t getClosestCluster(const Point &point,
-                        const std::vector<Cluster> &clusters) {
+                           const std::vector<Cluster> &clusters) {
   if (clusters.empty()) {
     return {};
   }
   uint64_t closestClusterId = 0;
-  float minDistance = point.distance(clusters[0].center);
+  float minDistance = point.distanceSquared(clusters[0].center);
   for (uint64_t i = 1; i < clusters.size(); i++) {
-    float distance = point.distance(clusters[i].center);
+    float distance = point.distanceSquared(clusters[i].center);
     if (distance < minDistance) {
       minDistance = distance;
       closestClusterId = i;
@@ -71,9 +70,9 @@ Point getClosestPoint(const Point &point,
     return {};
   }
   Point closestPoint = otherPoints[0];
-  float minDistance = point.distance(closestPoint);
+  float minDistance = point.distanceSquared(closestPoint);
   for (uint64_t i = 1; i < otherPoints.size(); i++) {
-    float distance = point.distance(otherPoints[i]);
+    float distance = point.distanceSquared(otherPoints[i]);
     if (distance < minDistance) {
       minDistance = distance;
       closestPoint = otherPoints[i];
@@ -87,25 +86,24 @@ Point newCenter(const Cluster &cluster) {
     return cluster.center;
   }
 
-  const uint64_t dimensions = cluster.points[0].record.vector->getDimension();
+  const uint64_t dimensions = cluster.points[0].record.values.dimensions();
   std::vector<double> sums(static_cast<size_t>(dimensions), 0.0);
 
   for (const Point &point : cluster.points) {
     for (uint64_t dim = 0; dim < dimensions; ++dim) {
       sums[static_cast<size_t>(dim)] +=
-          static_cast<double>((*point.record.vector)[static_cast<int64_t>(dim)]);
+          static_cast<double>(point.record.values[dim]);
     }
   }
 
-  Point updatedCenter = cluster.center;
-  updatedCenter.record.vector = std::make_shared<HDVector>(
-      static_cast<int64_t>(dimensions));
-  updatedCenter.record.recordId = -1;
-
+  std::vector<float> centroid(static_cast<size_t>(dimensions), 0.0f);
   const double scale = 1.0 / static_cast<double>(cluster.points.size());
   for (uint64_t dim = 0; dim < dimensions; ++dim) {
-    (*updatedCenter.record.vector)[static_cast<int64_t>(dim)] =
+    centroid[static_cast<size_t>(dim)] =
         static_cast<float>(sums[static_cast<size_t>(dim)] * scale);
   }
-  return getClosestPoint(updatedCenter, cluster.points);
+
+  Point centroidPoint = cluster.center;
+  centroidPoint.record.values = FloatVectorView(centroid.data(), dimensions);
+  return getClosestPoint(centroidPoint, cluster.points);
 }

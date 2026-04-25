@@ -59,15 +59,13 @@ std::vector<std::vector<float>> makeSmallClusteredRows(int64_t &outN,
 // HDVector deeper bugs
 // ============================================================================
 
-// BUG: Vector::distance uses float*float arithmetic before accumulating into
-// the double running total. Large magnitude inputs therefore overflow to +Inf
-// despite a double accumulator being available. A correct implementation would
-// widen the per-dimension difference to double before squaring.
+// BUG: distance accumulation must widen before squaring. Large magnitude inputs
+// otherwise overflow to +Inf despite a double accumulator being available.
 TEST(HDVectorRobustness, DistanceDoesNotOverflowOnLargeMagnitudeInputs) {
   HDVector big(std::vector<float>{1.0e20f, 0.0f});
   HDVector origin(std::vector<float>{0.0f, 0.0f});
 
-  const float d = Vector::distance(big, origin);
+  const float d = euclideanDistance(big.view(), origin.view());
   EXPECT_TRUE(std::isfinite(d))
       << "distance returned " << d
       << " for well-representable inputs; float*float overflowed before "
@@ -99,7 +97,7 @@ TEST(HDVectorRobustness, DistanceMatchesTheExpectedValueForMildlyLargeInputs) {
   HDVector b(right);
 
   // sqrt(sum_i (1e9)^2) = 1e9 * sqrt(16) = 4e9
-  const float d = Vector::distance(a, b);
+  const float d = euclideanDistance(a.view(), b.view());
   EXPECT_NEAR(d, 4.0e9f, 1.0e3f)
       << "distance should be 4e9 for 16 dims each contributing (1e9)^2";
 }
@@ -205,15 +203,14 @@ TEST(DataSetRobustness, StoredDimensionsEqualToOneIsRejected) {
   out.write(reinterpret_cast<const char *>(&id1), sizeof(id1));
   out.close();
 
-  EXPECT_THROW(InMemoryDataSet ds(path), std::exception)
+  EXPECT_THROW(FlatDataSet ds(path), std::exception)
       << "storedDimensions==1 means the records have zero actual vector "
          "data; the loader should reject this degenerate file";
 }
 
-// BUG: InMemoryDataSet and FileDataSet should produce identical records when
-// reading the same file.  The current code paths are independent and prone
-// to silently diverging -- this test pins down that they agree.
-TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
+// BUG: independent FlatDataSet instances should produce identical records when
+// reading the same file.
+TEST(DataSetRobustness, FlatDataSetInstancesAgreeOnTheSameFile) {
   const auto path = uniqueFixturePath("in_mem_vs_file");
   ScopedFile cleanup{path};
 
@@ -224,8 +221,8 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
   };
   writeDatasetFile(path, rows.size(), 4, rows);
 
-  InMemoryDataSet inMem(path);
-  FileDataSet onDisk(path);
+  FlatDataSet inMem(path);
+  FlatDataSet onDisk(path);
 
   ASSERT_EQ(inMem.getN(), onDisk.getN());
   ASSERT_EQ(inMem.getDimensions(), onDisk.getDimensions());
@@ -233,19 +230,19 @@ TEST(DataSetRobustness, InMemoryAndFileDataSetAgreeOnTheSameFile) {
   for (uint64_t i = 0; i < inMem.getN(); ++i) {
     auto a = inMem.getRecordViewByIndex(i);
     auto b = onDisk.getRecordViewByIndex(i);
-    ASSERT_NE(a.vector, nullptr);
-    ASSERT_NE(b.vector, nullptr);
+    ASSERT_NE(a.values.data(), nullptr);
+    ASSERT_NE(b.values.data(), nullptr);
     EXPECT_EQ(a.recordId, b.recordId);
-    ASSERT_EQ(a.vector->getDimension(), b.vector->getDimension());
-    for (uint64_t d = 0; d < a.vector->getDimension(); ++d) {
-      EXPECT_FLOAT_EQ((*a.vector)[d], (*b.vector)[d])
+    ASSERT_EQ(a.values.dimensions(), b.values.dimensions());
+    for (uint64_t d = 0; d < a.values.dimensions(); ++d) {
+      EXPECT_FLOAT_EQ(a.values[d], b.values[d])
           << "in-memory and on-disk loaders disagree at row " << i
           << " dim " << d;
     }
   }
 }
 
-// BUG: FileDataSet does not close its file on failed construction.  If the
+// BUG: FlatDataSet does not close its file on failed construction.  If the
 // header check rejects the file (storedDimensions < 1), m_file remains open
 // and leaks the underlying handle.  Constructing many bad datasets in a
 // tight loop would exhaust the process file descriptor table.  We cannot
@@ -264,16 +261,15 @@ TEST(DataSetRobustness, RepeatedFailedConstructionStaysReproducible) {
   out.close();
 
   for (uint64_t attempt = 0; attempt < 8; ++attempt) {
-    EXPECT_THROW(FileDataSet ds(path), std::exception)
+    EXPECT_THROW(FlatDataSet ds(path), std::exception)
         << "attempt " << attempt
         << ": loader stopped rejecting invalid files after earlier failures, "
            "suggesting a stale file handle or cached state";
   }
 }
 
-// BUG: RecordView vectors produced by getNRecordViewsFromIndex and
-// getNVectorsFromIndex must share the same data with
-// getRecordViewByIndex.  Any divergence is a serialisation or copy bug.
+// BUG: RecordView vectors produced by getRecordViewsFromIndex must match
+// getRecordViewByIndex. Any divergence is a serialisation or copy bug.
 TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
   const auto path = uniqueFixturePath("ranged_vs_single");
   ScopedFile cleanup{path};
@@ -286,25 +282,20 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
   };
   writeDatasetFile(path, rows.size(), 3, rows);
 
-  InMemoryDataSet ds(path);
-  auto range = ds.getNRecordViewsFromIndex(1, 2);
-  auto vectorsOnly = ds.getNVectorsFromIndex(1, 2);
-  ASSERT_NE(range, nullptr);
-  ASSERT_NE(vectorsOnly, nullptr);
-  ASSERT_EQ(range->size(), 2U);
-  ASSERT_EQ(vectorsOnly->size(), 2U);
+  FlatDataSet ds(path);
+  auto range = ds.getRecordViewsFromIndex(1, 2);
+  // vector return value is always materialized.
+  ASSERT_EQ(range.size(), 2U);
 
   for (uint64_t offset = 0; offset < 2; ++offset) {
     const int64_t absolute = static_cast<int64_t>(1 + offset);
     auto single = ds.getRecordViewByIndex(absolute);
-    ASSERT_NE(single.vector, nullptr);
-    ASSERT_NE(range->at(offset).vector, nullptr);
-    ASSERT_NE(vectorsOnly->at(offset), nullptr);
+    ASSERT_NE(single.values.data(), nullptr);
+    ASSERT_NE(range.at(offset).values.data(), nullptr);
 
-    EXPECT_EQ(single.recordId, range->at(offset).recordId);
-    for (uint64_t d = 0; d < single.vector->getDimension(); ++d) {
-      EXPECT_FLOAT_EQ((*single.vector)[d], (*range->at(offset).vector)[d]);
-      EXPECT_FLOAT_EQ((*single.vector)[d], (*vectorsOnly->at(offset))[d]);
+    EXPECT_EQ(single.recordId, range.at(offset).recordId);
+    for (uint64_t d = 0; d < single.values.dimensions(); ++d) {
+      EXPECT_FLOAT_EQ(single.values[d], range.at(offset).values[d]);
     }
   }
 }
@@ -331,7 +322,7 @@ TEST(VamanaRobustness, ConstructorWithEmptyDatasetDoesNotCrash) {
   EXPECT_EXIT(
       {
         try {
-          auto ds = std::make_unique<InMemoryDataSet>(path);
+          auto ds = std::make_unique<FlatDataSet>(path);
           Vamana v(std::move(ds), 2);
           std::exit(0);
         } catch (const std::exception &) {
@@ -358,7 +349,7 @@ TEST(VamanaRobustness, BuildIndexDoesNotSpamStdout) {
 
   {
     std::srand(0);
-    auto ds = std::make_unique<InMemoryDataSet>(path);
+    auto ds = std::make_unique<FlatDataSet>(path);
     Vamana v(std::move(ds), 3);
     (void)v;
   }
@@ -386,13 +377,13 @@ TEST(VamanaRobustness, GreedySearchRejectsMismatchedQueryDimensionImmediately) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
   v.setSearchListSize(4);
 
   // Dataset vectors are 2-dimensional; this query has 5 dimensions.
   HDVector bad(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
-  EXPECT_THROW((void)v.greedySearch(bad, 1), std::invalid_argument)
+  EXPECT_THROW((void)v.greedySearch(bad.view(), 1), std::invalid_argument)
       << "greedySearch accepted a query whose dimension did not match the "
          "dataset";
 }
@@ -410,13 +401,13 @@ TEST(VamanaRobustness, GreedySearchResultsAreWithinDatasetBounds) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   const uint64_t datasetSize = static_cast<uint64_t>(n);
   Vamana v(std::move(ds), 3);
   v.setSearchListSize(static_cast<int64_t>(datasetSize));
 
   HDVector q(std::vector<float>{12.5f, 7.5f});
-  SearchResults r = v.greedySearch(q, 5);
+  SearchResults r = v.greedySearch(q.view(), 5);
 
   for (NodeId idx : r.approximateNN) {
     EXPECT_GE(idx, 0);
@@ -444,7 +435,7 @@ TEST(VamanaRobustness, SetDistanceThresholdChangesPruningDecision) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   // Pick three distinct nodes so that distance(p, p_dash) and
@@ -476,7 +467,7 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
 
   auto neighboursOf = [&path](NodeId node) {
     std::srand(0);
-    auto ds = std::make_unique<InMemoryDataSet>(path);
+    auto ds = std::make_unique<FlatDataSet>(path);
     Vamana v(std::move(ds), 3);
     NodeList neighbours = v.getOutNeighbors(node);
     std::sort(neighbours.begin(), neighbours.end());
@@ -490,7 +481,7 @@ TEST(VamanaRobustness, InstancesDoNotLeakRandomStateBetweenConstructions) {
   // yield identical results. A process-global dependency would make the two
   // calls diverge.
   auto neighboursOfNoReset = [&path](NodeId node) {
-    auto ds = std::make_unique<InMemoryDataSet>(path);
+    auto ds = std::make_unique<FlatDataSet>(path);
     Vamana v(std::move(ds), 3);
     NodeList neighbours = v.getOutNeighbors(node);
     std::sort(neighbours.begin(), neighbours.end());
@@ -527,13 +518,13 @@ TEST(VamanaRobustness, InsertIntoSetInsertsEveryMissingElement) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
   NodeList to;
-  v.insertIntoSet({2, 4}, to, q);
-  v.insertIntoSet({1, 3, 5}, to, q);
+  v.insertIntoSet({2, 4}, to, q.view());
+  v.insertIntoSet({1, 3, 5}, to, q.view());
 
   std::unordered_set<NodeId> unique(to.begin(), to.end());
   const std::unordered_set<NodeId> expected = {1, 2, 3, 4, 5};
@@ -556,19 +547,19 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   HDVector q(std::vector<float>{0.0f, 0.0f});
 
   NodeList to;
-  v.insertIntoSet({5, 3, 1, 4, 2, 0}, to, q);
+  v.insertIntoSet({5, 3, 1, 4, 2, 0}, to, q.view());
 
   for (size_t i = 1; i < to.size(); ++i) {
-    const float before = Vector::distance(
-        q, *v.getRecordViewByIndex(to[i - 1]).vector);
-    const float after = Vector::distance(
-        q, *v.getRecordViewByIndex(to[i]).vector);
+    const float before =
+        euclideanDistance(q.view(), v.getRecordViewByIndex(to[i - 1]).values);
+    const float after =
+        euclideanDistance(q.view(), v.getRecordViewByIndex(to[i]).values);
     EXPECT_LE(before, after)
         << "insertIntoSet produced an out-of-order pair at positions "
         << (i - 1) << " and " << i;
@@ -626,7 +617,7 @@ TEST(UtilsRobustness, GetPermutationZeroProducesEmptyResult) {
 }
 
 // BUG: isValidPath's contract is ambiguous.  It is used to gate the
-// FileDataSet constructor but it reports directories as "valid", which
+// FlatDataSet constructor but it reports directories as "valid", which
 // then falls into a generic runtime_error from fstream::open.  A loader
 // helper should reject non-regular-file paths up front.
 TEST(UtilsRobustness, IsValidPathRejectsDirectoryInputs) {
@@ -686,7 +677,7 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 6);
   v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
@@ -717,7 +708,7 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
               return l.first < r.first;
             });
 
-  SearchResults approx = v.greedySearch(q, 5);
+  SearchResults approx = v.greedySearch(q.view(), 5);
   ASSERT_EQ(approx.approximateNN.size(), 5U);
 
   NodeList expected;
@@ -744,7 +735,7 @@ TEST(IntegrationRegression, SelfRecallIsPerfectAtLEqualsN) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 5);
   v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
@@ -752,9 +743,9 @@ TEST(IntegrationRegression, SelfRecallIsPerfectAtLEqualsN) {
   for (size_t i = 0; i < rows.size(); ++i) {
     const std::vector<float> payload(rows[i].begin() + 1, rows[i].end());
     HDVector q(payload);
-    SearchResults r = v.greedySearch(q, 1);
+    SearchResults r = v.greedySearch(q.view(), 1);
     if (r.approximateNN.size() != 1U ||
-        r.approximateNN.front() != static_cast<int64_t>(i)) {
+        r.approximateNN.front() != static_cast<NodeId>(i)) {
       ++misses;
     }
   }

@@ -8,10 +8,9 @@
 
 namespace {
 
-template <typename DataSetType>
-class BinaryLoadingTest : public ::testing::Test {};
+template <typename DataSetType> class BinaryLoadingTest : public ::testing::Test {};
 
-using DataSetImplementations = ::testing::Types<FileDataSet, InMemoryDataSet>;
+using DataSetImplementations = ::testing::Types<FlatDataSet>;
 TYPED_TEST_SUITE(BinaryLoadingTest, DataSetImplementations);
 
 TYPED_TEST(BinaryLoadingTest, LoadsGloveBinary) {
@@ -24,11 +23,11 @@ TYPED_TEST(BinaryLoadingTest, ReadsFirstVectorFromGloveBinary) {
   TypeParam dataset(testutils::embeddingFixturePath("gvec.bin"));
   RecordView record = dataset.getRecordViewByIndex(0);
   ASSERT_EQ(record.recordId, 0);
-  ASSERT_NE(record.vector, nullptr);
+  ASSERT_NE(record.values.data(), nullptr);
 
   const auto &expected = testutils::firstGloveVector();
-  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimensions()); ++i) {
-    EXPECT_EQ((*record.vector)[i], expected.at(static_cast<size_t>(i)));
+  for (uint64_t i = 0; i < dataset.getDimensions(); ++i) {
+    EXPECT_EQ(record.values[i], expected.at(static_cast<size_t>(i)));
   }
 }
 
@@ -36,11 +35,11 @@ TYPED_TEST(BinaryLoadingTest, ReadsLastVectorFromGloveBinary) {
   TypeParam dataset(testutils::embeddingFixturePath("gvec.bin"));
   RecordView record = dataset.getRecordViewByIndex(dataset.getN() - 1);
   ASSERT_EQ(record.recordId, dataset.getN() - 1);
-  ASSERT_NE(record.vector, nullptr);
+  ASSERT_NE(record.values.data(), nullptr);
 
   const auto &expected = testutils::lastGloveVector();
-  for (int64_t i = 0; i < static_cast<int64_t>(dataset.getDimensions()); ++i) {
-    EXPECT_EQ((*record.vector)[i], expected.at(static_cast<size_t>(i)));
+  for (uint64_t i = 0; i < dataset.getDimensions(); ++i) {
+    EXPECT_EQ(record.values[i], expected.at(static_cast<size_t>(i)));
   }
 }
 

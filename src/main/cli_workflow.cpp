@@ -12,43 +12,14 @@
 #include "dataset.hpp"
 #include "graph.hpp"
 #include "vamana.hpp"
+#include "vector_view.hpp"
 
 namespace {
 
 using Json = nlohmann::json;
 
-std::string dataSetModeName(CliDataSetMode mode) {
-  switch (mode) {
-    case CliDataSetMode::File:
-      return "file";
-    case CliDataSetMode::Memory:
-      return "memory";
-  }
-
-  throw std::invalid_argument("unsupported dataset mode");
-}
-
-CliDataSetMode dataSetModeFromName(const std::string &value) {
-  if (value == "file") {
-    return CliDataSetMode::File;
-  }
-  if (value == "memory") {
-    return CliDataSetMode::Memory;
-  }
-
-  throw std::invalid_argument("unsupported dataset mode: " + value);
-}
-
-std::unique_ptr<DataSet> makeDataSet(CliDataSetMode mode,
-                                     const std::filesystem::path &path) {
-  switch (mode) {
-    case CliDataSetMode::File:
-      return std::make_unique<FileDataSet>(path);
-    case CliDataSetMode::Memory:
-      return std::make_unique<InMemoryDataSet>(path);
-  }
-
-  throw std::invalid_argument("unsupported dataset mode");
+std::unique_ptr<DataSet> makeDataSet(const std::filesystem::path &path) {
+  return std::make_unique<FlatDataSet>(path);
 }
 
 void ensureParentDirectoryExists(const std::filesystem::path &path) {
@@ -58,10 +29,8 @@ void ensureParentDirectoryExists(const std::filesystem::path &path) {
   }
 }
 
-Json baseDataSetJson(DataSet &dataSet, const std::filesystem::path &path,
-                     CliDataSetMode mode) {
+Json baseDataSetJson(DataSet &dataSet, const std::filesystem::path &path) {
   return {{"path", path.string()},
-          {"mode", dataSetModeName(mode)},
           {"records", dataSet.getN()},
           {"dimensions", dataSet.getDimensions()}};
 }
@@ -86,27 +55,26 @@ Json graphSummaryJson(const Graph &graph) {
 
   return {{"nodes", graph.getNodeCount()},
           {"degree_threshold", graph.getDegreeThreshold()},
-          {"medoid", graph.getMedoid() ? Json(*graph.getMedoid()) : Json(nullptr)},
+          {"medoid",
+           graph.getMedoid() ? Json(*graph.getMedoid()) : Json(nullptr)},
           {"total_edges", totalEdges},
           {"average_out_degree", averageOutDegree},
           {"max_out_degree", maxOutDegree}};
 }
 
-Json recordResultJson(const RecordView &queryRecord, const RecordView &resultRecord,
-                      NodeId node) {
+Json recordResultJson(const RecordView &queryRecord,
+                      const RecordView &resultRecord, NodeId node) {
   return {{"node", node},
           {"record_id", resultRecord.recordId},
-          {"distance",
-           Vector::distance(*queryRecord.vector, *resultRecord.vector)}};
+          {"distance", euclideanDistance(queryRecord.values,
+                                          resultRecord.values)}};
 }
 
 }  // namespace
 
 std::string buildIndexWorkflow(const BuildIndexOptions &options) {
-  std::unique_ptr<DataSet> dataSet =
-      makeDataSet(options.dataSetMode, options.datasetPath);
-  const Json dataSetJson =
-      baseDataSetJson(*dataSet, options.datasetPath, options.dataSetMode);
+  std::unique_ptr<DataSet> dataSet = makeDataSet(options.datasetPath);
+  const Json dataSetJson = baseDataSetJson(*dataSet, options.datasetPath);
 
   Vamana index(std::move(dataSet), options.degreeThreshold,
                options.distanceThreshold);
@@ -125,8 +93,7 @@ std::string buildIndexWorkflow(const BuildIndexOptions &options) {
 }
 
 std::string queryIndexWorkflow(const QueryIndexOptions &options) {
-  std::unique_ptr<DataSet> dataSet =
-      makeDataSet(options.dataSetMode, options.datasetPath);
+  std::unique_ptr<DataSet> dataSet = makeDataSet(options.datasetPath);
   if (options.queryNode >= dataSet->getN()) {
     throw std::out_of_range("query node is outside dataset bounds");
   }
@@ -136,7 +103,7 @@ std::string queryIndexWorkflow(const QueryIndexOptions &options) {
 
   const RecordView queryRecord = index.getRecordViewByIndex(options.queryNode);
   const SearchResults searchResults =
-      index.greedySearch(*queryRecord.vector, options.k);
+      index.greedySearch(queryRecord.values, options.k);
 
   Json results = Json::array();
   for (NodeId node : searchResults.approximateNN) {
@@ -146,8 +113,7 @@ std::string queryIndexWorkflow(const QueryIndexOptions &options) {
 
   Json output = {
       {"command", "query-index"},
-      {"dataset", {{"path", options.datasetPath.string()},
-                   {"mode", dataSetModeName(options.dataSetMode)}}},
+      {"dataset", {{"path", options.datasetPath.string()}}},
       {"index", {{"path", options.indexPath.string()}}},
       {"query",
        {{"node", options.queryNode},
@@ -168,14 +134,12 @@ std::string inspectIndexWorkflow(const InspectIndexOptions &options) {
                    {"graph", graphSummaryJson(graph)}}}};
 
   if (options.datasetPath) {
-    std::unique_ptr<DataSet> dataSet =
-        makeDataSet(options.dataSetMode, *options.datasetPath);
+    std::unique_ptr<DataSet> dataSet = makeDataSet(*options.datasetPath);
     if (dataSet->getN() != graph.getNodeCount()) {
       throw std::runtime_error(
           "dataset record count does not match graph node count");
     }
-    output["dataset"] =
-        baseDataSetJson(*dataSet, *options.datasetPath, options.dataSetMode);
+    output["dataset"] = baseDataSetJson(*dataSet, *options.datasetPath);
   }
 
   return output.dump(2);
@@ -186,68 +150,49 @@ int runSembedCli(int argc, char **argv) {
   QueryIndexOptions queryOptions;
   InspectIndexOptions inspectOptions;
 
-  std::string buildModeName = "memory";
-  std::string queryModeName = "memory";
-  std::string inspectModeName = "memory";
-
-  CLI::App app{"Build, query, and inspect Vamana graph indexes."};
+  CLI::App app{"Build, query, and inspect sembed indexes."};
   app.set_help_flag("-h,--help", "Show this help message and exit.");
 
-  auto *buildIndex = app.add_subcommand(
-      "build-index", "Build a Vamana index and save the graph to disk.");
+  CLI::App *buildIndex =
+      app.add_subcommand("build-index", "Build and save a Vamana index.");
   buildIndex->add_option("--dataset", buildOptions.datasetPath,
-                         "Dataset binary path.")
+                         "Dataset path.")
       ->required();
-  buildIndex->add_option("--dataset-mode", buildModeName,
-                         "Dataset loading mode: file or memory.")
-      ->capture_default_str()
-      ->transform(CLI::CheckedTransformer({{"file", "file"},
-                                           {"memory", "memory"}},
-                                          CLI::ignore_case));
   buildIndex->add_option("--degree-threshold", buildOptions.degreeThreshold,
-                         "Vamana R parameter.")
+                         "Maximum graph out-degree.")
       ->capture_default_str();
-  buildIndex->add_option("--distance-threshold", buildOptions.distanceThreshold,
+  buildIndex->add_option("--distance-threshold",
+                         buildOptions.distanceThreshold,
                          "Vamana alpha parameter.")
       ->capture_default_str();
   buildIndex->add_option("--output", buildOptions.outputPath,
-                         "Graph output path.")
+                         "Output graph path.")
       ->required();
 
-  auto *queryIndex = app.add_subcommand(
-      "query-index", "Load a saved graph and query it using a dataset node.");
+  CLI::App *queryIndex =
+      app.add_subcommand("query-index", "Query a saved Vamana index.");
   queryIndex->add_option("--dataset", queryOptions.datasetPath,
-                         "Dataset binary path.")
+                         "Dataset path.")
       ->required();
-  queryIndex->add_option("--dataset-mode", queryModeName,
-                         "Dataset loading mode: file or memory.")
-      ->capture_default_str()
-      ->transform(CLI::CheckedTransformer({{"file", "file"},
-                                           {"memory", "memory"}},
-                                          CLI::ignore_case));
-  queryIndex->add_option("--index", queryOptions.indexPath, "Saved graph path.")
+  queryIndex->add_option("--index", queryOptions.indexPath,
+                         "Saved graph path.")
       ->required();
   queryIndex->add_option("--query-node", queryOptions.queryNode,
-                         "Dataset node id to use as the query.")
+                         "Dataset node to use as query.")
       ->required();
-  queryIndex->add_option("--k", queryOptions.k, "Number of neighbors to return.")
+  queryIndex->add_option("--k", queryOptions.k, "Number of results.")
       ->capture_default_str();
   queryIndex->add_option("--search-list-size", queryOptions.searchListSize,
-                         "Greedy-search candidate list size.")
+                         "Vamana search list size.")
       ->capture_default_str();
 
-  auto *inspectIndex = app.add_subcommand(
-      "inspect-index", "Report graph metadata for a saved index.");
-  inspectIndex->add_option("--index", inspectOptions.indexPath, "Saved graph path.")
+  CLI::App *inspectIndex =
+      app.add_subcommand("inspect-index", "Inspect a saved Vamana index.");
+  inspectIndex->add_option("--index", inspectOptions.indexPath,
+                           "Saved graph path.")
       ->required();
   inspectIndex->add_option("--dataset", inspectOptions.datasetPath,
-                           "Optional dataset binary path for shape validation.");
-  inspectIndex->add_option("--dataset-mode", inspectModeName,
-                           "Dataset loading mode when --dataset is provided.")
-      ->capture_default_str()
-      ->transform(CLI::CheckedTransformer({{"file", "file"},
-                                           {"memory", "memory"}},
-                                          CLI::ignore_case));
+                           "Optional dataset path for consistency checks.");
 
   app.require_subcommand(1);
 
@@ -259,21 +204,21 @@ int runSembedCli(int argc, char **argv) {
 
   try {
     if (*buildIndex) {
-      buildOptions.dataSetMode = dataSetModeFromName(buildModeName);
       std::cout << buildIndexWorkflow(buildOptions) << '\n';
       return 0;
     }
     if (*queryIndex) {
-      queryOptions.dataSetMode = dataSetModeFromName(queryModeName);
       std::cout << queryIndexWorkflow(queryOptions) << '\n';
       return 0;
     }
-
-    inspectOptions.dataSetMode = dataSetModeFromName(inspectModeName);
-    std::cout << inspectIndexWorkflow(inspectOptions) << '\n';
-    return 0;
+    if (*inspectIndex) {
+      std::cout << inspectIndexWorkflow(inspectOptions) << '\n';
+      return 0;
+    }
   } catch (const std::exception &error) {
     std::cerr << "sembed: " << error.what() << '\n';
     return 1;
   }
+
+  return 0;
 }

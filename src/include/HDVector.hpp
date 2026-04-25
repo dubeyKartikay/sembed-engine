@@ -4,23 +4,25 @@
 #include <cstdint>
 #include <vector>
 
-#include "Vector.hpp"
+#include "vector_view.hpp"
 
-class HDVector : public Vector {
+class HDVector {
 public:
-  HDVector(int64_t dimensions);
-  HDVector(const std::vector<float> &vec);
+  explicit HDVector(int64_t dimensions);
+  explicit HDVector(const std::vector<float> &values);
 
-  float *getDataPointer() override;
-  const float *getDataPointer() const override;
-  uint64_t getDimension() const override { return dimensions_; }
+  float *data();
+  const float *data() const;
+  uint64_t dimensions() const { return static_cast<uint64_t>(m_data.size()); }
+  FloatVectorView view() const {
+    return FloatVectorView(m_data.data(), dimensions());
+  }
 
-  float &operator[](int64_t index) override;
-  const float &operator[](int64_t index) const override;
+  float &operator[](int64_t index);
+  const float &operator[](int64_t index) const;
 
 private:
-  std::vector<float> data_;
-  uint64_t dimensions_ = 0;
+  std::vector<float> m_data;
 };
 
 #endif  // HDVEC

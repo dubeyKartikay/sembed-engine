@@ -21,17 +21,6 @@ BenchmarkAlgorithm benchmarkAlgorithmFromName(const std::string &value) {
   throw std::invalid_argument("unknown benchmark algorithm: " + value);
 }
 
-BenchmarkDataSetMode benchmarkDataSetModeFromName(const std::string &value) {
-  if (value == "file") {
-    return BenchmarkDataSetMode::File;
-  }
-  if (value == "memory") {
-    return BenchmarkDataSetMode::Memory;
-  }
-
-  throw std::invalid_argument("unknown dataset mode: " + value);
-}
-
 bool parseBoolValue(const std::string &value) {
   if (value == "true") {
     return true;
@@ -63,7 +52,6 @@ void writeBenchmarkResult(const std::string &json,
 int main(int argc, char **argv) {
   BenchmarkParameters parameters;
   std::string algorithmName;
-  std::string datasetModeName = "memory";
   std::string excludeSelfValue = "true";
   std::string queryDatasetPath;
   std::string outputPath;
@@ -82,12 +70,6 @@ int main(int argc, char **argv) {
   app.add_option("--dataset", parameters.datasetPath, "Base dataset path.")
       ->required();
   app.add_option("--query-dataset", queryDatasetPath, "Optional query dataset.");
-  app.add_option("--dataset-mode", datasetModeName,
-                 "Dataset loading mode: file or memory.")
-      ->capture_default_str()
-      ->transform(CLI::CheckedTransformer({{"file", "file"},
-                                           {"memory", "memory"}},
-                                          CLI::ignore_case));
   app.add_option("--query-count", parameters.queryCount,
                  "Number of sampled queries. Default: min(100, N).");
   app.add_option("--k", parameters.k, "Recall/search depth.")
@@ -123,7 +105,6 @@ int main(int argc, char **argv) {
 
   try {
     parameters.algorithm = benchmarkAlgorithmFromName(algorithmName);
-    parameters.datasetMode = benchmarkDataSetModeFromName(datasetModeName);
     parameters.excludeSelf = parseBoolValue(excludeSelfValue);
     if (!queryDatasetPath.empty()) {
       parameters.queryDatasetPath = queryDatasetPath;

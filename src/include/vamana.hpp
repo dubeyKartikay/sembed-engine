@@ -10,14 +10,14 @@
 #include "node_types.hpp"
 #include "searchresults.hpp"
 #include "utils.hpp"
+#include "vector_view.hpp"
 
 class Vamana {
 public:
   void prune(NodeId node, NodeList &candidateSet);
-  SearchResults greedySearch(const Vector &queryNode, uint64_t k);
-  void insertIntoSet(const NodeList &NOut,
-                     NodeList &ANNset,
-                     const Vector &nod);
+  SearchResults greedySearch(FloatVectorView query, uint64_t k);
+  void insertIntoSet(const NodeList &from, NodeList &to,
+                     FloatVectorView comparisonVector);
   Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
          float distanceThreshold = 1.2f);
   Vamana(std::unique_ptr<DataSet> dataSet, Graph graph,
@@ -26,32 +26,32 @@ public:
          std::filesystem::path savedVamanaIndexPath,
          float distanceThreshold = 1.2f);
 
-  float getDistanceThreshold() const { return distanceThreshold_; }
-  void setDistanceThreshold(float alpha) { distanceThreshold_ = alpha; }
+  float getDistanceThreshold() const { return m_distanceThreshold; }
+  void setDistanceThreshold(float alpha) { m_distanceThreshold = alpha; }
 
-  uint64_t getSearchListSize() const { return searchListSize_; }
-  bool isToBePruned(NodeId p_dash, NodeId p_start, NodeId p);
+  uint64_t getSearchListSize() const { return m_searchListSize; }
+  bool isToBePruned(NodeId pDash, NodeId pStar, NodeId p);
   void setSearchListSize(int64_t searchListSize) {
     if (searchListSize < 0) {
       throw std::invalid_argument("search list size must be non-negative");
     }
-    searchListSize_ = static_cast<uint64_t>(searchListSize);
+    m_searchListSize = static_cast<uint64_t>(searchListSize);
   }
 
-  uint64_t getDegreeThreshold() const { return graph_.getDegreeThreshold(); }
-  OptionalNodeId getMedoid() const { return graph_.getMedoid(); }
-  uint64_t getNodeCount() const { return graph_.getNodeCount(); }
+  uint64_t getDegreeThreshold() const { return m_graph.getDegreeThreshold(); }
+  OptionalNodeId getMedoid() const { return m_graph.getMedoid(); }
+  uint64_t getNodeCount() const { return m_graph.getNodeCount(); }
   const NodeList &getOutNeighbors(NodeId node) const {
-    return graph_.getOutNeighbors(node);
+    return m_graph.getOutNeighbors(node);
   }
   void setOutNeighbors(NodeId node, const NodeList &neighbors) {
-    graph_.setOutNeighbors(node, neighbors);
+    m_graph.setOutNeighbors(node, neighbors);
   }
   void clearOutNeighbors(NodeId node) {
-    graph_.clearOutNeighbors(node);
+    m_graph.clearOutNeighbors(node);
   }
   RecordView getRecordViewByIndex(NodeId node) const {
-    return dataSet_->getRecordViewByIndex(node);
+    return m_dataSet->getRecordViewByIndex(node);
   }
 
   void buildIndex();
@@ -59,10 +59,10 @@ public:
   void save(std::filesystem::path path) const;
 
 private:
-  std::unique_ptr<DataSet> dataSet_;
-  Graph graph_;
-  float distanceThreshold_ = 1.2f;
-  uint64_t searchListSize_ = 100;
+  std::unique_ptr<DataSet> m_dataSet;
+  Graph m_graph;
+  float m_distanceThreshold = 1.2f;
+  uint64_t m_searchListSize = 100;
 };
 
-#endif // !VAMANA
+#endif  // VAMANA

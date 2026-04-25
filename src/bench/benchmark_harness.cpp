@@ -31,10 +31,6 @@ NLOHMANN_JSON_SERIALIZE_ENUM(BenchmarkAlgorithm,
                              {{BenchmarkAlgorithm::BruteForce, "bruteforce"},
                               {BenchmarkAlgorithm::Vamana, "vamana"}})
 
-NLOHMANN_JSON_SERIALIZE_ENUM(BenchmarkDataSetMode,
-                             {{BenchmarkDataSetMode::File, "file"},
-                              {BenchmarkDataSetMode::Memory, "memory"}})
-
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -84,43 +80,21 @@ Json jsonOptionalPath(const std::optional<std::filesystem::path> &value) {
   return value ? Json(value->string()) : Json(nullptr);
 }
 
-HDVector copyIntoHDVector(const Vector &source) {
-  std::vector<float> values(static_cast<size_t>(source.getDimension()), 0.0f);
-  for (uint64_t dim = 0; dim < source.getDimension(); ++dim) {
-    values[static_cast<size_t>(dim)] = source[static_cast<int64_t>(dim)];
+HDVector copyIntoHDVector(FloatVectorView source) {
+  std::vector<float> values(static_cast<size_t>(source.dimensions()), 0.0f);
+  for (uint64_t dim = 0; dim < source.dimensions(); ++dim) {
+    values[static_cast<size_t>(dim)] = source[dim];
   }
   return HDVector(values);
 }
 
-float squaredDistance(const Vector &left, const Vector &right) {
-  if (left.getDimension() != right.getDimension()) {
-    throw std::invalid_argument("vector dimensions must match");
-  }
-
-  double total = 0.0;
-  for (uint64_t dim = 0; dim < left.getDimension(); ++dim) {
-    const double delta =
-        static_cast<double>(left[static_cast<int64_t>(dim)]) -
-        static_cast<double>(right[static_cast<int64_t>(dim)]);
-    total += delta * delta;
-  }
-  return static_cast<float>(total);
+std::unique_ptr<DataSet> makeDataSet(const std::filesystem::path &path) {
+  return std::make_unique<FlatDataSet>(path);
 }
 
-std::unique_ptr<DataSet> makeDataSet(BenchmarkDataSetMode mode,
-                                     const std::filesystem::path &path) {
-  switch (mode) {
-    case BenchmarkDataSetMode::File:
-      return std::make_unique<FileDataSet>(path);
-    case BenchmarkDataSetMode::Memory:
-      return std::make_unique<InMemoryDataSet>(path);
-  }
-
-  throw std::invalid_argument("unsupported dataset mode");
-}
-
-NodeList exactNearestNeighbors(DataSet &baseDataSet, const Vector &queryVector,
-                               uint64_t k, OptionalNodeId excludedBaseNode) {
+NodeList exactNearestNeighbors(DataSet &baseDataSet,
+                               FloatVectorView queryVector, uint64_t k,
+                               OptionalNodeId excludedBaseNode) {
   std::vector<std::pair<float, NodeId>> ranked;
   ranked.reserve(static_cast<size_t>(baseDataSet.getN()));
 
@@ -130,7 +104,7 @@ NodeList exactNearestNeighbors(DataSet &baseDataSet, const Vector &queryVector,
     }
 
     const RecordView record = baseDataSet.getRecordViewByIndex(node);
-    ranked.push_back({squaredDistance(queryVector, *record.vector), node});
+    ranked.push_back({squaredDistance(queryVector, record.values), node});
   }
 
   const size_t limit =
@@ -175,7 +149,7 @@ std::vector<QueryWorkloadEntry> buildQueryWorkload(
 
   for (NodeId queryIndex : queryIndices) {
     const RecordView queryRecord = queryDataSet.getRecordViewByIndex(queryIndex);
-    workload.push_back({queryIndex, copyIntoHDVector(*queryRecord.vector),
+    workload.push_back({queryIndex, copyIntoHDVector(queryRecord.values),
                         excludeSelf ? OptionalNodeId(queryIndex)
                                     : std::nullopt});
   }
@@ -192,7 +166,8 @@ std::vector<QueryMeasurement> runBruteForceQueries(
   for (const QueryWorkloadEntry &query : workload) {
     const Clock::time_point start = Clock::now();
     NodeList exact =
-        exactNearestNeighbors(baseDataSet, query.vector, k, query.excludedBaseNode);
+        exactNearestNeighbors(baseDataSet, query.vector.view(), k,
+                              query.excludedBaseNode);
     const Clock::time_point end = Clock::now();
 
     measurements.push_back(
@@ -210,7 +185,8 @@ std::vector<QueryMeasurement> runVamanaQueries(
   for (const QueryWorkloadEntry &query : workload) {
     const uint64_t requestedK = query.excludedBaseNode ? k + 1 : k;
     const Clock::time_point start = Clock::now();
-    const SearchResults results = index.greedySearch(query.vector, requestedK);
+    const SearchResults results =
+        index.greedySearch(query.vector.view(), requestedK);
     const Clock::time_point end = Clock::now();
 
     measurements.push_back(
@@ -230,7 +206,8 @@ std::vector<NodeList> buildExactResults(
 
   for (const QueryWorkloadEntry &query : workload) {
     exactResults.push_back(
-        exactNearestNeighbors(baseDataSet, query.vector, k, query.excludedBaseNode));
+        exactNearestNeighbors(baseDataSet, query.vector.view(), k,
+                              query.excludedBaseNode));
   }
 
   return exactResults;
@@ -414,7 +391,6 @@ void to_json(nlohmann::json &json, const BenchmarkResult &result) {
   json = {{"algorithm", result.algorithm},
           {"dataset",
            {{"path", jsonPath(result.datasetPath)},
-            {"mode", result.datasetMode},
             {"records", result.datasetSize},
             {"dimensions", result.dimensions}}},
           {"workload",
@@ -440,15 +416,14 @@ BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
 
   const Clock::time_point baseLoadStart = Clock::now();
   std::unique_ptr<DataSet> baseDataSet =
-      makeDataSet(parameters.datasetMode, parameters.datasetPath);
+      makeDataSet(parameters.datasetPath);
   const Clock::time_point baseLoadEnd = Clock::now();
 
   std::unique_ptr<DataSet> queryDataSet;
   std::optional<double> queryLoadTimeSeconds;
   if (parameters.queryDatasetPath) {
     const Clock::time_point queryLoadStart = Clock::now();
-    queryDataSet =
-        makeDataSet(parameters.datasetMode, *parameters.queryDatasetPath);
+    queryDataSet = makeDataSet(*parameters.queryDatasetPath);
     const Clock::time_point queryLoadEnd = Clock::now();
     queryLoadTimeSeconds =
         elapsedSeconds(queryLoadStart, queryLoadEnd);
@@ -464,7 +439,6 @@ BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
 
   BenchmarkResult result;
   result.algorithm = parameters.algorithm;
-  result.datasetMode = parameters.datasetMode;
   result.datasetPath = parameters.datasetPath;
   result.queryDatasetPath = parameters.queryDatasetPath;
   result.datasetSize = baseDataSet->getN();
@@ -529,7 +503,7 @@ BenchmarkResult runBenchmark(const BenchmarkParameters &parameters) {
 
   const Clock::time_point restartStart = Clock::now();
   std::unique_ptr<DataSet> reloadedDataSet =
-      makeDataSet(parameters.datasetMode, parameters.datasetPath);
+      makeDataSet(parameters.datasetPath);
   Vamana reloadedIndex(std::move(reloadedDataSet), artifactPath,
                        parameters.distanceThreshold);
   reloadedIndex.setSearchListSize(static_cast<int64_t>(parameters.searchListSize));

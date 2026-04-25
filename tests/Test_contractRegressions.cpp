@@ -189,7 +189,7 @@ TEST(UtilsContractRegression, GetPermutationWithNegativeNReturnsEmpty) {
 }
 
 // BUG: isValidPath is implemented as fs::exists, which returns true for
-// directories, symlinks to directories, character devices, etc. FileDataSet
+// directories, symlinks to directories, character devices, etc. FlatDataSet
 // then tries to open the directory as a binary file and either silently
 // reads garbage or fails later with a non-helpful error.
 TEST(UtilsContractRegression, IsValidPathReturnsFalseForDirectoriesAndEmptyInput) {
@@ -208,21 +208,20 @@ TEST(UtilsContractRegression, IsValidPathReturnsFalseForDirectoriesAndEmptyInput
 TEST(HDVectorContractRegression, DimensionAccessorExposesLongLongStorage) {
   HDVector v(std::vector<float>{1.0f, 2.0f, 3.0f});
   using returned_type =
-      std::remove_cv_t<std::remove_reference_t<decltype(v.getDimension())>>;
+      std::remove_cv_t<std::remove_reference_t<decltype(v.dimensions())>>;
   EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>) ||
               (std::is_same_v<returned_type, std::size_t>))
       << "HDVector::getDimension returns a 32-bit signed value, which silently narrows any "
          "dimension larger than INT_MAX";
 }
 
-// BUG: Vector::distance on two identical vectors should return exactly 0.
-// Any non-zero residue points at either the float-precision loss bug or an
-// unstable accumulator. This is our canonical sanity check.
+// BUG: distance on two identical vectors should return exactly 0. Any non-zero
+// residue points at either precision loss or an unstable accumulator.
 TEST(HDVectorContractRegression, DistanceOfIdenticalLargeVectorsIsExactlyZero) {
   std::vector<float> data(32, 1.0e7f);
   HDVector a(data);
   HDVector b(data);
-  EXPECT_FLOAT_EQ(Vector::distance(a, b), 0.0f);
+  EXPECT_FLOAT_EQ(euclideanDistance(a.view(), b.view()), 0.0f);
 }
 
 // BUG: distance must satisfy the triangle inequality d(a,c) <= d(a,b) + d(b,c).
@@ -234,9 +233,9 @@ TEST(HDVectorContractRegression, DistanceObeysTriangleInequality) {
   HDVector b(std::vector<float>{3.0f, 4.0f});
   HDVector c(std::vector<float>{6.0f, 8.0f});
 
-  const float ab = Vector::distance(a, b);
-  const float bc = Vector::distance(b, c);
-  const float ac = Vector::distance(a, c);
+  const float ab = euclideanDistance(a.view(), b.view());
+  const float bc = euclideanDistance(b.view(), c.view());
+  const float ac = euclideanDistance(a.view(), c.view());
   EXPECT_LE(ac, ab + bc + 1e-4f)
       << "triangle inequality violated: d(a,c)=" << ac
       << ", d(a,b)+d(b,c)=" << ab + bc;
@@ -254,12 +253,12 @@ TEST(DataSetContractRegression, GetNReturnTypeMatchesLongLongStorage) {
   const auto path = uniqueFixturePath("n_return_type");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
 
   using returned_type =
       std::remove_cv_t<std::remove_reference_t<decltype(ds.getN())>>;
   EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>))
-      << "InMemoryDataSet::getN() returns a 32-bit signed value, silently narrowing the "
+      << "FlatDataSet::getN() returns a 32-bit signed value, silently narrowing the "
          "dataset record-count member";
 }
 
@@ -268,12 +267,12 @@ TEST(DataSetContractRegression, GetDimensionsReturnTypeMatchesLongLongStorage) {
   const auto path = uniqueFixturePath("dim_return_type");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
 
   using returned_type =
       std::remove_cv_t<std::remove_reference_t<decltype(ds.getDimensions())>>;
   EXPECT_TRUE((std::is_same_v<returned_type, uint64_t>))
-      << "InMemoryDataSet::getDimensions() returns a 32-bit signed value, silently narrowing "
+      << "FlatDataSet::getDimensions() returns a 32-bit signed value, silently narrowing "
          "the dataset dimension member";
 }
 
@@ -292,7 +291,7 @@ TEST(DataSetContractRegression, NegativeRecordCountHeaderIsRejected) {
   out.write(reinterpret_cast<const char *>(&stored), sizeof(stored));
   out.close();
 
-  EXPECT_THROW(InMemoryDataSet ds(path), std::exception)
+  EXPECT_THROW(FlatDataSet ds(path), std::exception)
       << "loader accepted a header claiming n == -5";
 }
 
@@ -304,7 +303,7 @@ TEST(DataSetContractRegression, NegativeIndexGetRecordViewThrowsOutOfRange) {
   const auto path = uniqueFixturePath("negative_index");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
 
   EXPECT_THROW((void)ds.getRecordViewByIndex(-1), std::out_of_range);
 }
@@ -344,7 +343,7 @@ TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   // Snapshot adjacency after the first build.
@@ -384,7 +383,7 @@ TEST(VamanaContractRegression, SetDistanceThresholdIsObservable) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   v.setDistanceThreshold(2.5f);
@@ -411,19 +410,19 @@ TEST(VamanaContractRegression, GreedySearchDoesNotReturnInternalMarkers) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
   v.setSearchListSize(15);
 
   HDVector q(std::vector<float>{12.0f, -2.0f});
-  SearchResults r = v.greedySearch(q, 5);
+  SearchResults r = v.greedySearch(q.view(), 5);
 
   // approximateNN must be strictly ascending by distance.
   for (size_t i = 1; i < r.approximateNN.size(); ++i) {
-    const float before = Vector::distance(
-        q, *v.getRecordViewByIndex(r.approximateNN[i - 1]).vector);
-    const float after = Vector::distance(
-        q, *v.getRecordViewByIndex(r.approximateNN[i]).vector);
+    const float before = euclideanDistance(
+        q.view(), v.getRecordViewByIndex(r.approximateNN[i - 1]).values);
+    const float after = euclideanDistance(
+        q.view(), v.getRecordViewByIndex(r.approximateNN[i]).values);
     EXPECT_LE(before, after)
         << "approximateNN[" << i - 1 << "] and approximateNN[" << i
         << "] are out of order";
@@ -443,13 +442,13 @@ TEST(VamanaContractRegression, GreedySearchIsDeterministicForIdenticalQueries) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
   v.setSearchListSize(10);
 
   HDVector q(std::vector<float>{25.0f, -5.0f});
-  SearchResults first = v.greedySearch(q, 3);
-  SearchResults second = v.greedySearch(q, 3);
+  SearchResults first = v.greedySearch(q.view(), 3);
+  SearchResults second = v.greedySearch(q.view(), 3);
 
   EXPECT_EQ(first.approximateNN, second.approximateNN)
       << "two identical greedySearch calls returned different ANN lists";
@@ -468,7 +467,7 @@ TEST(VamanaContractRegression, PruneOnEmptyCandidateSetLeavesNodeStranded) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   NodeList candidates; // intentionally empty
@@ -493,7 +492,7 @@ TEST(VamanaContractRegression, IsToBePrunedWithZeroAlphaAlwaysPrunes) {
                 {2.0f, 2.0f, 0.0f}});
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   v.setDistanceThreshold(0.0f);
@@ -503,9 +502,7 @@ TEST(VamanaContractRegression, IsToBePrunedWithZeroAlphaAlwaysPrunes) {
 }
 
 // BUG: inserting a mismatched-dimension query node anywhere in the algorithm
-// should surface as std::invalid_argument.  prune ultimately calls
-// insertIntoSet which calls Vector::distance; if the dimensions disagree,
-// an std::invalid_argument exception is expected.
+// should surface as std::invalid_argument.
 TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   const auto path = uniqueFixturePath("dim_mismatch_insert");
   ScopedFile cleanup{path};
@@ -516,10 +513,10 @@ TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   writeDatasetFile(path, n, stored, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   HDVector bad(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
   NodeList to;
-  EXPECT_THROW(v.insertIntoSet({1, 2}, to, bad), std::invalid_argument);
+  EXPECT_THROW(v.insertIntoSet({1, 2}, to, bad.view()), std::invalid_argument);
 }

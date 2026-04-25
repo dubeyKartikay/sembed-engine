@@ -2,8 +2,19 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <random>
 #include <unordered_set>
+
+namespace fs = std::filesystem;
+
+bool isValidPath(const std::string &path) {
+  return !path.empty() && fs::exists(path) && !fs::is_directory(path);
+}
+
+bool isValidFile(const std::string &path) {
+  return isValidPath(path);
+}
 
 std::mt19937_64 makeDeterministicRng(uint64_t salt,
                                      std::initializer_list<uint64_t> values) {

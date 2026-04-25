@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -148,23 +149,23 @@ TEST(HDVectorRegression, DistanceIsSymmetric) {
   HDVector a(std::vector<float>{0.0f, 0.0f, 0.0f});
   HDVector b(std::vector<float>{3.0f, 4.0f, 12.0f});
 
-  EXPECT_FLOAT_EQ(Vector::distance(a, b), Vector::distance(b, a));
+  EXPECT_FLOAT_EQ(euclideanDistance(a.view(), b.view()), euclideanDistance(b.view(), a.view()));
 }
 
 TEST(HDVectorRegression, DistanceWithSelfIsZero) {
   HDVector v(std::vector<float>{1.5f, -2.25f, 0.125f, 9999.0f});
-  EXPECT_FLOAT_EQ(Vector::distance(v, v), 0.0f);
+  EXPECT_FLOAT_EQ(euclideanDistance(v.view(), v.view()), 0.0f);
 }
 
 TEST(HDVectorRegression, ZeroDimensionalVectorDistanceIsZero) {
   HDVector a(0);
   HDVector b(0);
-  EXPECT_FLOAT_EQ(Vector::distance(a, b), 0.0f);
+  EXPECT_FLOAT_EQ(euclideanDistance(a.view(), b.view()), 0.0f);
 }
 
 TEST(HDVectorRegression, ConstructorFromDimensionInitialisesZeros) {
   HDVector v(5);
-  ASSERT_EQ(v.getDimension(), 5);
+  ASSERT_EQ(v.dimensions(), 5);
   for (uint64_t i = 0; i < 5; ++i) {
     EXPECT_EQ(v[i], 0.0f);
   }
@@ -237,61 +238,51 @@ TEST(GraphRegression, ConstructorWithRZeroStaysDegreeZero) {
 // =========================================================================
 // DataSet bugs -- large-index exposure, index type, and concurrent reads.
 // =========================================================================
-TEST(DataSetRegression, GetNDoesNotSilentlyTruncateLargeSize) {
-  // getN() used to be a 32-bit signed return value, so any legitimate dataset with more
-  // than INT_MAX records is truncated to a negative value.
+TEST(DataSetRegression, GetNReturnTypeDoesNotSilentlyTruncate) {
   const auto path = uniqueFixturePath("huge_header");
   ScopedFile cleanup{path};
 
-  const int64_t huge_n =
-      static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 10LL;
-  const int64_t stored_dim = 2;
+  writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 2.0f}, {1.0f, 3.0f, 4.0f}});
 
-  // Write only the header; readers that don't materialise records should
-  // still be able to report N == huge_n without truncation.
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  ASSERT_TRUE(out.is_open());
-  out.write(reinterpret_cast<const char *>(&huge_n), sizeof(huge_n));
-  out.write(reinterpret_cast<const char *>(&stored_dim), sizeof(stored_dim));
-  out.close();
-
-  FileDataSet ds(path);
-  EXPECT_EQ(static_cast<int64_t>(ds.getN()), huge_n)
-      << "getN() truncated a 64-bit record count into a 32-bit signed value";
+  FlatDataSet ds(path);
+  using GetNType =
+      std::remove_cv_t<std::remove_reference_t<decltype(ds.getN())>>;
+  static_assert(std::is_same_v<GetNType, uint64_t>,
+                "getN must expose the 64-bit dataset record count type");
+  EXPECT_EQ(ds.getN(), 2U);
 }
 
-TEST(DataSetRegression, FileDataSetGetRecordViewByIndexRejectsNegative) {
+TEST(DataSetRegression, FlatDataSetGetRecordViewByIndexRejectsNegative) {
   const auto path = uniqueFixturePath("neg_index");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 3, 2,
                    {{1.0f, 2.0f}, {2.0f, 4.0f}, {3.0f, 6.0f}});
 
-  FileDataSet ds(path);
-  // The in-memory implementation and the file-based implementation both
-  // advertise `std::out_of_range` for invalid indices in DataSetApiTest;
-  // the contract here is that -1 yields the same error.
+  FlatDataSet ds(path);
+  // The contract here is that -1 yields the same error as other invalid
+  // indices.
   EXPECT_THROW((void)ds.getRecordViewByIndex(
                    std::numeric_limits<uint64_t>::max()),
                std::out_of_range);
 }
 
-TEST(DataSetRegression, InMemoryDataSetNegativeIndexYieldsOutOfRange) {
+TEST(DataSetRegression, FlatDataSetNegativeIndexYieldsOutOfRange) {
   const auto path = uniqueFixturePath("inmem_neg");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 2, 2, {{1.0f, 2.0f}, {2.0f, 3.0f}});
 
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
   EXPECT_THROW((void)ds.getRecordViewByIndex(
                    std::numeric_limits<uint64_t>::max()),
                std::out_of_range);
 }
 
-TEST(DataSetRegression, InMemoryDataSetRejectsOutOfBoundsIndex) {
+TEST(DataSetRegression, FlatDataSetRejectsOutOfBoundsIndex) {
   const auto path = uniqueFixturePath("inmem_oob");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 2, 2, {{1.0f, 2.0f}, {2.0f, 3.0f}});
 
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
   // at() throws std::out_of_range already; ensure the constant holds.
   EXPECT_THROW((void)ds.getRecordViewByIndex(2), std::out_of_range);
   EXPECT_THROW((void)ds.getRecordViewByIndex(1000), std::out_of_range);
@@ -315,13 +306,13 @@ TEST(DataSetRegression, RecordIdsRoundTripThroughLargeLongLongValues) {
             static_cast<std::streamsize>(payload.size() * sizeof(float)));
   out.close();
 
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
   auto record = ds.getRecordViewByIndex(0);
   EXPECT_EQ(record.recordId, huge_id)
       << "record id round-trip lost precision through int64_t storage";
 }
 
-TEST(DataSetRegression, FileDataSetAllowsConcurrentReadsWithoutCorruption) {
+TEST(DataSetRegression, FlatDataSetAllowsInterleavedReadsWithoutCorruption) {
   const auto path = uniqueFixturePath("concurrent_reads");
   ScopedFile cleanup{path};
 
@@ -332,27 +323,26 @@ TEST(DataSetRegression, FileDataSetAllowsConcurrentReadsWithoutCorruption) {
   }
   writeDatasetFile(path, rows.size(), 3, rows);
 
-  // Share one dataset across two "threads" by interleaving reads.  The
-  // underlying fstream uses mutable seek state; interleaved reads must
+  // Share one dataset across two "threads" by interleaving reads. Views must
   // still return the correct records.
-  FileDataSet ds(path);
+  FlatDataSet ds(path);
   auto first = ds.getRecordViewByIndex(0);
   // Initiate a range read that repositions the internal cursor.
-  auto range = ds.getNRecordViewsFromIndex(3, 2);
+  auto range = ds.getRecordViewsFromIndex(3, 2);
   // Now re-read index 0. If the cursor wasn't properly re-seeked, this
   // returns garbage.
   auto second = ds.getRecordViewByIndex(0);
 
-  ASSERT_NE(first.vector, nullptr);
-  ASSERT_NE(second.vector, nullptr);
-  ASSERT_EQ(first.vector->getDimension(), 2);
-  ASSERT_EQ(second.vector->getDimension(), 2);
-  EXPECT_FLOAT_EQ((*first.vector)[0], (*second.vector)[0]);
-  EXPECT_FLOAT_EQ((*first.vector)[1], (*second.vector)[1]);
+  ASSERT_NE(first.values.data(), nullptr);
+  ASSERT_NE(second.values.data(), nullptr);
+  ASSERT_EQ(first.values.dimensions(), 2);
+  ASSERT_EQ(second.values.dimensions(), 2);
+  EXPECT_FLOAT_EQ(first.values[0], second.values[0]);
+  EXPECT_FLOAT_EQ(first.values[1], second.values[1]);
   EXPECT_EQ(first.recordId, second.recordId);
   EXPECT_EQ(first.recordId, 0);
-  ASSERT_NE(range, nullptr);
-  ASSERT_EQ(range->size(), 2U);
+  // vector return value is always materialized.
+  ASSERT_EQ(range.size(), 2U);
 }
 
 TEST(VamanaRegression, ConstructorFromGraphDoesNotRebuildIndex) {
@@ -367,7 +357,7 @@ TEST(VamanaRegression, ConstructorFromGraphDoesNotRebuildIndex) {
   const auto rows = makeClusteredRows(n, storedDim);
   writeDatasetFile(path, n, storedDim, rows);
 
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Graph provided(n, 3);
   provided.clearOutNeighbors(0);
   provided.addOutNeighborUnique(0, 1);
@@ -413,7 +403,7 @@ TEST(VamanaRegression, ConstructorFromSavedPathLoadsInsteadOfRebuilding) {
   const std::string graph_str = graph_path.string();
 
   auto saved_path_loader = [&]() {
-    auto ds = std::make_unique<InMemoryDataSet>(dataset_str);
+    auto ds = std::make_unique<FlatDataSet>(dataset_str);
     std::srand(0);
     Vamana v(std::move(ds), std::filesystem::path(graph_str));
 
@@ -447,14 +437,14 @@ TEST(VamanaRegression, GreedySearchWithSmallSearchListStillTerminatesAndReturnsN
   writeDatasetFile(path, n, storedDim, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(1);
 
   HDVector query(std::vector<float>{210.0f, 110.0f});
   // With L == 1 the main loop may never advance, which would indicate a
   // bug: the algorithm should still return a best-effort candidate.
-  SearchResults result = v.greedySearch(query, 1);
+  SearchResults result = v.greedySearch(query.view(), 1);
   EXPECT_EQ(result.approximateNN.size(), 1U);
 }
 
@@ -468,13 +458,13 @@ TEST(VamanaRegression, GreedySearchIsDeterministicAcrossRepeatedCalls) {
   writeDatasetFile(path, n, storedDim, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(n);
 
   HDVector query(std::vector<float>{102.5f, 50.25f});
-  SearchResults first = v.greedySearch(query, 3);
-  SearchResults second = v.greedySearch(query, 3);
+  SearchResults first = v.greedySearch(query.view(), 3);
+  SearchResults second = v.greedySearch(query.view(), 3);
 
   EXPECT_EQ(first.approximateNN, second.approximateNN)
       << "greedySearch returned different results for identical inputs";
@@ -493,7 +483,7 @@ TEST(VamanaRegression, BuildIndexProducesIdenticalGraphForIdenticalInputs) {
 
   auto build = [&path]() {
     std::srand(0);
-    auto ds = std::make_unique<InMemoryDataSet>(path);
+    auto ds = std::make_unique<FlatDataSet>(path);
     return std::make_unique<Vamana>(std::move(ds), 4);
   };
 
@@ -539,7 +529,7 @@ TEST(VamanaRegression, SearchReturnsKnownNearestNodesOnDeterministicGraph) {
                   {0, 1, 2, 4},
                   {0, 1, 2, 3}});
 
-  auto ds = std::make_unique<InMemoryDataSet>(dataset_path);
+  auto ds = std::make_unique<FlatDataSet>(dataset_path);
   Vamana v(std::move(ds), graph_path);
   v.setSearchListSize(5);
 
@@ -565,12 +555,12 @@ TEST(VamanaRegression, GreedySearchDoesNotReturnDuplicateNodes) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
   v.setSearchListSize(8);
 
   HDVector query(std::vector<float>{1.0f, 2.0f});
-  SearchResults r = v.greedySearch(query, 5);
+  SearchResults r = v.greedySearch(query.view(), 5);
 
   std::unordered_set<NodeId> unique(r.approximateNN.begin(),
                                  r.approximateNN.end());
@@ -596,7 +586,7 @@ TEST(VamanaRegression, SavePersistsGraphThatLoadsBackIdentically) {
   writeDatasetFile(dataset_path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(dataset_path);
+  auto ds = std::make_unique<FlatDataSet>(dataset_path);
   Vamana v(std::move(ds), 3);
 
   v.save(graph_path);
@@ -625,7 +615,7 @@ TEST(VamanaRegression, InsertIntoSetDoesNotDuplicateExistingMembers) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   HDVector q(std::vector<float>{2.5f, 0.0f});
@@ -633,9 +623,9 @@ TEST(VamanaRegression, InsertIntoSetDoesNotDuplicateExistingMembers) {
   std::sort(working.begin(), working.end(),
             [&v, &q](int64_t l, int64_t r) {
               const float ld =
-                  Vector::distance(q, *v.getRecordViewByIndex(l).vector);
+                  euclideanDistance(q.view(), v.getRecordViewByIndex(l).values);
               const float rd =
-                  Vector::distance(q, *v.getRecordViewByIndex(r).vector);
+                  euclideanDistance(q.view(), v.getRecordViewByIndex(r).values);
               if (ld == rd) {
                 return l < r;
               }
@@ -643,7 +633,7 @@ TEST(VamanaRegression, InsertIntoSetDoesNotDuplicateExistingMembers) {
             });
 
   // Reinsert the same values.  The resulting set must not grow.
-  v.insertIntoSet({1, 2, 3}, working, q);
+  v.insertIntoSet({1, 2, 3}, working, q.view());
   EXPECT_EQ(working.size(), 3U)
       << "insertIntoSet duplicated already-present elements";
 
@@ -670,13 +660,13 @@ TEST(VamanaRegression, GreedySearchRecoversExactTopKOnTinyWellSeparatedClusters)
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   const std::vector<float> query = {2001.0f, 1000.5f};
   HDVector q(query);
-  SearchResults approx = v.greedySearch(q, 3);
+  SearchResults approx = v.greedySearch(q.view(), 3);
 
   // Brute force exact top-3.
   std::vector<std::pair<float, int64_t>> scored;
@@ -733,11 +723,11 @@ TEST(VamanaRegression, MedoidDependsOnDatasetSize) {
   writeDatasetFile(path_large, large_rows.size(), 3, large_rows);
 
   std::srand(0);
-  auto small_ds = std::make_unique<InMemoryDataSet>(path_small);
+  auto small_ds = std::make_unique<FlatDataSet>(path_small);
   Vamana v_small(std::move(small_ds), 3);
 
   std::srand(0);
-  auto large_ds = std::make_unique<InMemoryDataSet>(path_large);
+  auto large_ds = std::make_unique<FlatDataSet>(path_large);
   Vamana v_large(std::move(large_ds), 3);
 
   // The small dataset can only index up to 5. The large dataset indexes
@@ -772,30 +762,30 @@ TEST(HDVectorRegression, DistanceWithLargeValuesDoesNotOverflow) {
   std::vector<float> b(4, 1e18f);
   HDVector va(a);
   HDVector vb(b);
-  const float d = Vector::distance(va, vb);
+  const float d = euclideanDistance(va.view(), vb.view());
   EXPECT_TRUE(std::isfinite(d))
       << "distance overflowed to infinity for large magnitude vectors";
 }
 
 TEST(HDVectorRegression, DataPointerReflectsLaterWrites) {
   HDVector v(std::vector<float>{7.0f, 8.0f, 9.0f});
-  float *raw = v.getDataPointer();
+  float *raw = v.data();
   raw[1] = 42.0f;
   EXPECT_FLOAT_EQ(v[1], 42.0f)
-      << "getDataPointer does not expose the underlying storage";
+      << "data does not expose the underlying storage";
 }
 
-TEST(DataSetRegression, GetNRecordViewsFromIndexRejectsNegativeN) {
+TEST(DataSetRegression, GetRecordViewsFromIndexRejectsNegativeCount) {
   const auto path = uniqueFixturePath("neg_n");
   ScopedFile cleanup{path};
   writeDatasetFile(path, 3, 2,
                    {{1.0f, 2.0f}, {2.0f, 4.0f}, {3.0f, 6.0f}});
 
-  InMemoryDataSet ds(path);
-  // DataSetApiTest already checks FileDataSet. Ensure parity for
-  // InMemoryDataSet: a negative range must throw out_of_range rather than
+  FlatDataSet ds(path);
+  // DataSetApiTest already checks FlatDataSet. Ensure parity for
+  // FlatDataSet: a negative range must throw out_of_range rather than
   // silently return garbage.
-  EXPECT_THROW((void)ds.getNRecordViewsFromIndex(
+  EXPECT_THROW((void)ds.getRecordViewsFromIndex(
                    1, std::numeric_limits<uint64_t>::max()),
                std::out_of_range);
 }
@@ -926,7 +916,7 @@ TEST(VamanaRegression, BuildIndexWithSingleElementDatasetDoesNotCrash) {
   writeDatasetFile(path, 1, 3, {{0.0f, 1.0f, 2.0f}});
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   // Building an index over a dataset of size 1 should produce a graph
   // containing that sole node without crashing.  The current buildIndex
   // loop unconditionally calls getOutNeighbors on neighbour indices
@@ -953,18 +943,18 @@ TEST(VamanaRegression, GreedySearchOnDegenerateAllEqualDatasetPicksAnyRecord) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
   v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   HDVector q(std::vector<float>{0.0f, 0.0f});
-  SearchResults r = v.greedySearch(q, 3);
+  SearchResults r = v.greedySearch(q.view(), 3);
   ASSERT_EQ(r.approximateNN.size(), 3U);
 
   // Each returned neighbour must correspond to a zero-distance record.
   for (int64_t idx : r.approximateNN) {
     auto rec = v.getRecordViewByIndex(idx);
-    EXPECT_FLOAT_EQ(Vector::distance(q, *rec.vector), 0.0f);
+    EXPECT_FLOAT_EQ(euclideanDistance(q.view(), rec.values), 0.0f);
   }
 
   // And the three returned indices must be distinct.
@@ -986,13 +976,13 @@ TEST(VamanaRegression, GreedySearchHonoursKLargerThanDatasetByReturningAll) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
   v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   HDVector q(std::vector<float>{1.5f, 1.5f});
   // Asking for k > N should return every record, not throw.
-  SearchResults r = v.greedySearch(q, 100);
+  SearchResults r = v.greedySearch(q.view(), 100);
   EXPECT_EQ(r.approximateNN.size(), rows.size())
       << "requesting k > N should return all records, not truncate";
 }
@@ -1009,12 +999,12 @@ TEST(VamanaRegression, VisitedRecordReflectsActualTraversal) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(8);
 
   HDVector q(std::vector<float>{7.0f, 3.5f});  // 2D query (dataset dims = 2)
-  SearchResults r = v.greedySearch(q, 3);
+  SearchResults r = v.greedySearch(q.view(), 3);
 
   // The reported visited list must only reference legal record indices.
   for (NodeId idx : r.visited) {
@@ -1039,13 +1029,13 @@ TEST(VamanaRegression, GreedySearchReturnsEmptyWhenKIsZero) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
   v.setSearchListSize(6);
 
   HDVector q(std::vector<float>{1.0f, 1.0f});
   // k == 0 must yield an empty candidate list, not leak the medoid.
-  SearchResults r = v.greedySearch(q, 0);
+  SearchResults r = v.greedySearch(q.view(), 0);
   EXPECT_TRUE(r.approximateNN.empty())
       << "greedySearch returned elements when k == 0";
 }
@@ -1066,7 +1056,7 @@ TEST(VamanaRegression, BuildIndexProducesConnectedGraph) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
 
   // BFS from the medoid
@@ -1123,7 +1113,7 @@ TEST(VamanaRegression, BuildIndexWithDegreeThresholdGreaterThanN) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   // R == 100 is obviously impossible for N == 4.
   Vamana v(std::move(ds), 100);
 
@@ -1156,7 +1146,7 @@ TEST(VamanaRegression, BuildIndexDoesNotLeaveOrphanEdges) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   for (NodeId node = 0; node < 10; ++node) {
@@ -1181,16 +1171,16 @@ TEST(VamanaRegression, SetSearchListSizeTakesEffect) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
 
   HDVector q(std::vector<float>{50.0f, 70.0f});
 
   v.setSearchListSize(3);
-  SearchResults small_list = v.greedySearch(q, 1);
+  SearchResults small_list = v.greedySearch(q.view(), 1);
 
   v.setSearchListSize(30);
-  SearchResults big_list = v.greedySearch(q, 1);
+  SearchResults big_list = v.greedySearch(q.view(), 1);
 
   // A larger search list must explore at least as many nodes as a smaller one.
   EXPECT_GE(big_list.visited.size(), small_list.visited.size())
@@ -1209,7 +1199,7 @@ TEST(VamanaRegression, BuildIndexTerminatesOnDatasetWithOnlyTwoIdenticalPoints) 
   writeDatasetFile(path, 2, 3, {{0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}});
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   // Should finish in reasonable time with at least one edge between the
   // only two nodes.
   Vamana v(std::move(ds), 1);
@@ -1269,9 +1259,8 @@ TEST(RandomUtilsRegression, GetPermutationZeroReturnsEmpty) {
   EXPECT_TRUE(perm.empty());
 }
 
-TEST(DataSetRegression, InMemoryAndFileDataSetProduceIdenticalRecords) {
-  // The two dataset implementations must expose identical data for a
-  // given path.  Any divergence indicates a parsing bug in one of them.
+TEST(DataSetRegression, FlatDataSetInstancesProduceIdenticalRecords) {
+  // Independent dataset instances must expose identical data for a given path.
   const auto path = uniqueFixturePath("consistency");
   ScopedFile cleanup{path};
 
@@ -1284,8 +1273,8 @@ TEST(DataSetRegression, InMemoryAndFileDataSetProduceIdenticalRecords) {
   }
   writeDatasetFile(path, rows.size(), 4, rows);
 
-  InMemoryDataSet mem_ds(path);
-  FileDataSet file_ds(path);
+  FlatDataSet mem_ds(path);
+  FlatDataSet file_ds(path);
 
   ASSERT_EQ(mem_ds.getN(), file_ds.getN());
   ASSERT_EQ(mem_ds.getDimensions(), file_ds.getDimensions());
@@ -1293,18 +1282,17 @@ TEST(DataSetRegression, InMemoryAndFileDataSetProduceIdenticalRecords) {
     auto m = mem_ds.getRecordViewByIndex(i);
     auto f = file_ds.getRecordViewByIndex(i);
     EXPECT_EQ(m.recordId, f.recordId);
-    ASSERT_EQ(m.vector->getDimension(), f.vector->getDimension());
-    for (uint64_t d = 0; d < m.vector->getDimension(); ++d) {
-      EXPECT_FLOAT_EQ((*m.vector)[d], (*f.vector)[d])
+    ASSERT_EQ(m.values.dimensions(), f.values.dimensions());
+    for (uint64_t d = 0; d < m.values.dimensions(); ++d) {
+      EXPECT_FLOAT_EQ(m.values[d], f.values[d])
           << "records differ at index " << i << " dimension " << d;
     }
   }
 }
 
-TEST(DataSetRegression, FileDataSetReadAfterIndexRangeReturnsCorrectRecord) {
-  // The FileDataSet reuses a single fstream.  Calling a range read in
-  // between two single-index reads must still leave getRecordViewByIndex
-  // pointing at the right record.
+TEST(DataSetRegression, FlatDataSetReadAfterIndexRangeReturnsCorrectRecord) {
+  // Calling a range read between two single-index reads must still return the
+  // right record.
   const auto path = uniqueFixturePath("interleaved_reads");
   ScopedFile cleanup{path};
 
@@ -1315,23 +1303,23 @@ TEST(DataSetRegression, FileDataSetReadAfterIndexRangeReturnsCorrectRecord) {
   }
   writeDatasetFile(path, rows.size(), 3, rows);
 
-  FileDataSet ds(path);
+  FlatDataSet ds(path);
 
   auto first = ds.getRecordViewByIndex(2);
-  (void)ds.getNRecordViewsFromIndex(4, 2);
+  (void)ds.getRecordViewsFromIndex(4, 2);
   auto second = ds.getRecordViewByIndex(2);
 
-  ASSERT_NE(first.vector, nullptr);
-  ASSERT_NE(second.vector, nullptr);
+  ASSERT_NE(first.values.data(), nullptr);
+  ASSERT_NE(second.values.data(), nullptr);
   EXPECT_EQ(first.recordId, second.recordId);
-  ASSERT_EQ(first.vector->getDimension(), second.vector->getDimension());
-  for (uint64_t d = 0; d < first.vector->getDimension(); ++d) {
-    EXPECT_FLOAT_EQ((*first.vector)[d], (*second.vector)[d]);
+  ASSERT_EQ(first.values.dimensions(), second.values.dimensions());
+  for (uint64_t d = 0; d < first.values.dimensions(); ++d) {
+    EXPECT_FLOAT_EQ(first.values[d], second.values[d]);
   }
   // Explicit ground truth check: record 2 must be {4.0f, 6.0f}.
-  ASSERT_EQ(second.vector->getDimension(), 2);
-  EXPECT_FLOAT_EQ((*second.vector)[0], 4.0f);
-  EXPECT_FLOAT_EQ((*second.vector)[1], 6.0f);
+  ASSERT_EQ(second.values.dimensions(), 2);
+  EXPECT_FLOAT_EQ(second.values[0], 4.0f);
+  EXPECT_FLOAT_EQ(second.values[1], 6.0f);
 }
 
 TEST(VamanaRegression, PrunePreservesAdjacencyBoundedByDegree) {
@@ -1347,7 +1335,7 @@ TEST(VamanaRegression, PrunePreservesAdjacencyBoundedByDegree) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   // Manually inflate candidate set for node 0 and prune.
@@ -1378,7 +1366,7 @@ TEST(VamanaRegression, PrunePreservesCandidateSetExceptForSelf) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   NodeList candidates = {0, 1, 2, 3, 4, 5};
@@ -1401,15 +1389,15 @@ TEST(VamanaRegression, SaveSearchResultOrderingIsStable) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
   v.setSearchListSize(12);
 
   const std::vector<float> payload = {4.5f, 9.0f};
   HDVector q1(payload);
   HDVector q2(payload);
-  SearchResults r1 = v.greedySearch(q1, 4);
-  SearchResults r2 = v.greedySearch(q2, 4);
+  SearchResults r1 = v.greedySearch(q1.view(), 4);
+  SearchResults r2 = v.greedySearch(q2.view(), 4);
 
   EXPECT_EQ(r1.approximateNN, r2.approximateNN);
 }
@@ -1427,12 +1415,12 @@ TEST(VamanaRegression, GreedySearchVisitedListContainsNoDuplicates) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(10);
 
   HDVector q(std::vector<float>{5.0f, 15.0f});
-  SearchResults r = v.greedySearch(q, 3);
+  SearchResults r = v.greedySearch(q.view(), 3);
 
   std::unordered_set<NodeId> seen(r.visited.begin(), r.visited.end());
   EXPECT_EQ(seen.size(), r.visited.size());
@@ -1451,18 +1439,18 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(20);
 
   HDVector q(std::vector<float>{1.05f, 2.1f});
-  SearchResults r = v.greedySearch(q, 10);
+  SearchResults r = v.greedySearch(q.view(), 10);
   ASSERT_EQ(r.approximateNN.size(), 10U);
 
   float prev = -1.0f;
   for (NodeId idx : r.approximateNN) {
     auto rec = v.getRecordViewByIndex(idx);
-    const float d = Vector::distance(q, *rec.vector);
+    const float d = euclideanDistance(q.view(), rec.values);
     EXPECT_GE(d, prev)
         << "approximateNN not in ascending distance order at index " << idx;
     prev = d;
@@ -1470,10 +1458,9 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
 }
 
 // =========================================================================
-// DataSet destructor bug -- if the file fails to open, the fstream is not
-// closed and subsequent operations hit bad state.
+// DataSet truncated header handling.
 // =========================================================================
-TEST(DataSetRegression, FileDataSetThrowsForTruncatedHeader) {
+TEST(DataSetRegression, FlatDataSetThrowsForTruncatedHeader) {
   // A file that is too small to contain the 16-byte header should be
   // rejected instead of returning a nonsense N and dimensions.
   const auto path = uniqueFixturePath("truncated");
@@ -1486,13 +1473,13 @@ TEST(DataSetRegression, FileDataSetThrowsForTruncatedHeader) {
   out.write(payload, sizeof(payload));
   out.close();
 
-  EXPECT_ANY_THROW({ FileDataSet ds(path); })
-      << "FileDataSet silently accepted a truncated dataset header";
+  EXPECT_ANY_THROW({ FlatDataSet ds(path); })
+      << "FlatDataSet silently accepted a truncated dataset header";
 }
 
-TEST(DataSetRegression, InMemoryDataSetThrowsForTruncatedPayload) {
+TEST(DataSetRegression, FlatDataSetThrowsForTruncatedPayload) {
   // A file whose payload is shorter than the header advertises must be
-  // rejected.  Today the memory copy reads garbage / fails silently.
+  // rejected instead of accepting garbage.
   const auto path = uniqueFixturePath("short_payload");
   ScopedFile cleanup{path};
 
@@ -1511,8 +1498,8 @@ TEST(DataSetRegression, InMemoryDataSetThrowsForTruncatedPayload) {
   }
   out.close();
 
-  EXPECT_ANY_THROW({ InMemoryDataSet ds(path); })
-      << "InMemoryDataSet silently accepted a truncated payload";
+  EXPECT_ANY_THROW({ FlatDataSet ds(path); })
+      << "FlatDataSet silently accepted a truncated payload";
 }
 
 // =========================================================================
@@ -1536,7 +1523,7 @@ TEST(VamanaRegression, BuildIndexAlphaAffectsNeighbourSelection) {
 
   auto build_with_alpha = [&path](float alpha) {
     std::srand(0);
-    auto ds = std::make_unique<InMemoryDataSet>(path);
+    auto ds = std::make_unique<FlatDataSet>(path);
     return std::make_unique<Vamana>(std::move(ds), 4, alpha);
   };
 
@@ -1572,19 +1559,19 @@ TEST(VamanaRegression, GreedySearchFromRemoteQueryReturnsBestEffortCandidate) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(16);
 
   HDVector far_query(std::vector<float>{1000.0f, 1000.0f});
-  SearchResults r = v.greedySearch(far_query, 1);
+  SearchResults r = v.greedySearch(far_query.view(), 1);
   ASSERT_EQ(r.approximateNN.size(), 1U);
 
   // The largest indexed point is (15, 15), so that's the exact match.
   auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
-  ASSERT_EQ(rec.vector->getDimension(), 2);
-  EXPECT_FLOAT_EQ((*rec.vector)[0], 15.0f);
-  EXPECT_FLOAT_EQ((*rec.vector)[1], 15.0f);
+  ASSERT_EQ(rec.values.dimensions(), 2);
+  EXPECT_FLOAT_EQ(rec.values[0], 15.0f);
+  EXPECT_FLOAT_EQ(rec.values[1], 15.0f);
 }
 
 TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
@@ -1599,12 +1586,12 @@ TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   HDVector q(std::vector<float>{3.0f, -3.0f});
   NodeList working;
-  v.insertIntoSet({0, 1, 2, 3, 4, 5, 6, 7}, working, q);
+  v.insertIntoSet({0, 1, 2, 3, 4, 5, 6, 7}, working, q.view());
 
   ASSERT_EQ(working.size(), 8U);
   std::unordered_set<NodeId> unique(working.begin(), working.end());
@@ -1616,7 +1603,7 @@ TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
   OptionalNodeId prev_id;
   for (NodeId idx : working) {
     auto rec = v.getRecordViewByIndex(idx);
-    const float d = Vector::distance(q, *rec.vector);
+    const float d = euclideanDistance(q.view(), rec.values);
     if (d == prev) {
       ASSERT_TRUE(prev_id.has_value());
       EXPECT_GT(idx, prev_id.value())
@@ -1642,7 +1629,7 @@ TEST(VamanaRegression, MedoidIsWithinDatasetBounds) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   ASSERT_TRUE(v.getMedoid().has_value());
@@ -1664,7 +1651,7 @@ TEST(VamanaRegression, PruneOnEmptyCandidateSetProducesEmptyOutNeighbours) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   // Seed an explicit state: clear out-neighbours of node 2 first.
@@ -1692,8 +1679,8 @@ TEST(DataSetRegression, RecordIdsMatchIndexForSequentialIds) {
   }
   writeDatasetFile(path, rows.size(), 3, rows);
 
-  InMemoryDataSet mem(path);
-  FileDataSet disk(path);
+  FlatDataSet mem(path);
+  FlatDataSet disk(path);
 
   for (int64_t i = 0; i < 5; ++i) {
     EXPECT_EQ(mem.getRecordViewByIndex(i).recordId, i);
@@ -1701,8 +1688,8 @@ TEST(DataSetRegression, RecordIdsMatchIndexForSequentialIds) {
   }
 }
 
-TEST(DataSetRegression, GetNVectorsReturnsCountEqualToRequestedRange) {
-  const auto path = uniqueFixturePath("range_hdvec");
+TEST(DataSetRegression, GetRecordViewsReturnsCountEqualToRequestedRange) {
+  const auto path = uniqueFixturePath("range_views");
   ScopedFile cleanup{path};
 
   std::vector<std::vector<float>> rows;
@@ -1712,22 +1699,22 @@ TEST(DataSetRegression, GetNVectorsReturnsCountEqualToRequestedRange) {
   }
   writeDatasetFile(path, rows.size(), 3, rows);
 
-  InMemoryDataSet mem(path);
-  FileDataSet disk(path);
+  FlatDataSet mem(path);
+  FlatDataSet disk(path);
 
-  auto mem_vecs = mem.getNVectorsFromIndex(2, 5);
-  auto disk_vecs = disk.getNVectorsFromIndex(2, 5);
+  auto memViews = mem.getRecordViewsFromIndex(2, 5);
+  auto diskViews = disk.getRecordViewsFromIndex(2, 5);
 
-  ASSERT_NE(mem_vecs, nullptr);
-  ASSERT_NE(disk_vecs, nullptr);
-  EXPECT_EQ(mem_vecs->size(), 5U);
-  EXPECT_EQ(disk_vecs->size(), 5U);
+  EXPECT_EQ(memViews.size(), 5U);
+  EXPECT_EQ(diskViews.size(), 5U);
 
   for (uint64_t i = 0; i < 5; ++i) {
-    ASSERT_EQ(mem_vecs->at(i)->getDimension(),
-              disk_vecs->at(i)->getDimension());
-    for (uint64_t d = 0; d < mem_vecs->at(i)->getDimension(); ++d) {
-      EXPECT_FLOAT_EQ((*mem_vecs->at(i))[d], (*disk_vecs->at(i))[d]);
+    ASSERT_EQ(memViews.at(static_cast<size_t>(i)).values.dimensions(),
+              diskViews.at(static_cast<size_t>(i)).values.dimensions());
+    for (uint64_t d = 0;
+         d < memViews.at(static_cast<size_t>(i)).values.dimensions(); ++d) {
+      EXPECT_FLOAT_EQ(memViews.at(static_cast<size_t>(i)).values[d],
+                      diskViews.at(static_cast<size_t>(i)).values[d]);
     }
   }
 }
@@ -1748,7 +1735,7 @@ TEST(VamanaRegression, NegativeSearchListSizeIsRejected) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
   EXPECT_ANY_THROW(v.setSearchListSize(-5));
 }
@@ -1767,12 +1754,12 @@ TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset)
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 1);
   v.setSearchListSize(1);
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
-  SearchResults r = v.greedySearch(q, 1);
+  SearchResults r = v.greedySearch(q.view(), 1);
   ASSERT_FALSE(r.approximateNN.empty())
       << "greedySearch returned no candidates for a small dataset with "
          "L == 1, k == 1";
@@ -1783,10 +1770,15 @@ TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset)
 // =========================================================================
 #include "batch_stochastic_kmeans.hpp"
 TEST(KMeansRegression, GetClosestClusterReturnsNearestCenter) {
-  auto makePoint = [](NodeId cluster_id, int64_t record_id,
-                      std::vector<float> coordinates) {
+  std::vector<std::vector<float>> storage;
+  storage.reserve(4);
+  auto makePoint = [&storage](NodeId cluster_id, int64_t record_id,
+                              std::vector<float> coordinates) {
+    storage.push_back(std::move(coordinates));
+    const auto &values = storage.back();
     return Point{cluster_id,
-                 {record_id, std::make_shared<HDVector>(coordinates)}};
+                 {record_id, FloatVectorView(values.data(),
+                                             static_cast<uint64_t>(values.size()))}};
   };
 
   const Cluster near_origin{
@@ -1828,7 +1820,7 @@ TEST(DataSetRegression, GetDimensionsDoesNotSilentlyTruncateLargeDimension) {
             sizeof(huge_stored_dim));
   out.close();
 
-  FileDataSet ds(path);
+  FlatDataSet ds(path);
   EXPECT_EQ(static_cast<int64_t>(ds.getDimensions()), huge_stored_dim - 1LL)
       << "getDimensions() truncated a 64-bit stored dimension to 32 bits";
 }
@@ -1853,9 +1845,9 @@ TEST(HDVectorRegression, GetDimensionReturnsConsistentValueAcrossCalls) {
   HDVector v(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
   // Two back-to-back calls must return the same value.  If getDimension
   // were to mutate state this would fail.
-  EXPECT_EQ(v.getDimension(), 5);
-  EXPECT_EQ(v.getDimension(), 5);
-  EXPECT_EQ(v.getDimension(), 5);
+  EXPECT_EQ(v.dimensions(), 5);
+  EXPECT_EQ(v.dimensions(), 5);
+  EXPECT_EQ(v.dimensions(), 5);
 }
 
 // =========================================================================
@@ -1921,7 +1913,7 @@ TEST(KMeansRegression, ClusterizeDataDoesNotCrashOnEmptyDataset) {
   out.write(reinterpret_cast<const char *>(&stored_dim), sizeof(stored_dim));
   out.close();
 
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
   auto probe = [&ds]() {
     try {
       clusterizeData(ds);
@@ -1948,7 +1940,7 @@ TEST(KMeansRegression, ClusterizeDataSingleClusterAssignsAllPointsAndSnapsCenter
                     {1.0f, 2.0f, 2.0f},
                     {2.0f, 10.0f, 10.0f}});
 
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
   const std::vector<Cluster> clusters = clusterizeData(ds, /*k=*/1, /*iterations=*/3);
 
   ASSERT_EQ(clusters.size(), 1u);
@@ -1964,9 +1956,9 @@ TEST(KMeansRegression, ClusterizeDataSingleClusterAssignsAllPointsAndSnapsCenter
 
   EXPECT_EQ(clusters[0].center.clusterId, 0u);
   EXPECT_EQ(clusters[0].center.record.recordId, 1);
-  ASSERT_NE(clusters[0].center.record.vector, nullptr);
-  EXPECT_FLOAT_EQ((*clusters[0].center.record.vector)[0], 2.0f);
-  EXPECT_FLOAT_EQ((*clusters[0].center.record.vector)[1], 2.0f);
+  ASSERT_NE(clusters[0].center.record.values.data(), nullptr);
+  EXPECT_FLOAT_EQ(clusters[0].center.record.values[0], 2.0f);
+  EXPECT_FLOAT_EQ(clusters[0].center.record.values[1], 2.0f);
 }
 
 // =========================================================================
@@ -1982,7 +1974,7 @@ TEST(KMeansRegression, ClusterizeDataWithKEqualToDatasetSizeReturnsSingletonClus
                     {1.0f, 0.0f, 20.0f},
                     {2.0f, 30.0f, 5.0f}});
 
-  InMemoryDataSet ds(path);
+  FlatDataSet ds(path);
   const std::vector<Cluster> clusters = clusterizeData(ds, /*k=*/3, /*iterations=*/3);
 
   ASSERT_EQ(clusters.size(), 3u);
@@ -2061,7 +2053,7 @@ TEST(KMeansRegression, ClusterizeDataRecoversFiveSeparatedClustersOnLargeDataset
   int best_purity = -1;
 
   for (uint64_t attempt = 0; attempt < 8 && !observed_expected_partition; ++attempt) {
-    InMemoryDataSet ds(path);
+    FlatDataSet ds(path);
     const std::vector<Cluster> clusters =
         clusterizeData(ds, /*k=*/5, /*iterations=*/20);
 
@@ -2122,10 +2114,15 @@ TEST(KMeansRegression, ClusterizeDataRecoversFiveSeparatedClustersOnLargeDataset
 // mean of the cluster's members.
 // =========================================================================
 TEST(KMeansRegression, NewCenterReturnsClusterPointClosestToMean) {
-  auto makePoint = [](NodeId cluster_id, int64_t record_id,
-                      std::vector<float> coordinates) {
+  std::vector<std::vector<float>> storage;
+  storage.reserve(3);
+  auto makePoint = [&storage](NodeId cluster_id, int64_t record_id,
+                              std::vector<float> coordinates) {
+    storage.push_back(std::move(coordinates));
+    const auto &values = storage.back();
     return Point{cluster_id,
-                 {record_id, std::make_shared<HDVector>(coordinates)}};
+                 {record_id, FloatVectorView(values.data(),
+                                             static_cast<uint64_t>(values.size()))}};
   };
 
   const Point first = makePoint(/*cluster_id=*/7, /*record_id=*/0, {0.0f, 0.0f});
@@ -2138,9 +2135,9 @@ TEST(KMeansRegression, NewCenterReturnsClusterPointClosestToMean) {
 
   EXPECT_EQ(center.clusterId, second.clusterId);
   EXPECT_EQ(center.record.recordId, second.record.recordId);
-  ASSERT_NE(center.record.vector, nullptr);
-  EXPECT_FLOAT_EQ((*center.record.vector)[0], 2.0f);
-  EXPECT_FLOAT_EQ((*center.record.vector)[1], 2.0f);
+  ASSERT_NE(center.record.values.data(), nullptr);
+  EXPECT_FLOAT_EQ(center.record.values[0], 2.0f);
+  EXPECT_FLOAT_EQ(center.record.values[1], 2.0f);
 }
 
 // =========================================================================
@@ -2182,7 +2179,7 @@ TEST(VamanaRegression, BuildIndexOnEmptyDatasetTerminatesCleanly) {
   auto probe = [&path]() {
     try {
       std::srand(0);
-      auto ds = std::make_unique<InMemoryDataSet>(path);
+      auto ds = std::make_unique<FlatDataSet>(path);
       Vamana v(std::move(ds), 2);
       std::exit(0);
     } catch (...) {
@@ -2252,12 +2249,12 @@ TEST(VamanaRegression, InsertIntoSetWithEmptySourceLeavesTargetUnchanged) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   NodeList target = {0, 1, 2};
   HDVector q(std::vector<float>{1.0f, 1.0f});
-  v.insertIntoSet({}, target, q);
+  v.insertIntoSet({}, target, q.view());
   EXPECT_EQ(target, NodeList({0, 1, 2}))
       << "insertIntoSet with an empty source mutated the target set";
 }
@@ -2271,9 +2268,9 @@ TEST(HDVectorRegression, DistanceTriangleInequalityHolds) {
   HDVector b(std::vector<float>{3.0f, 0.0f});
   HDVector c(std::vector<float>{3.0f, 4.0f});
 
-  const float ab = Vector::distance(a, b);
-  const float bc = Vector::distance(b, c);
-  const float ac = Vector::distance(a, c);
+  const float ab = euclideanDistance(a.view(), b.view());
+  const float bc = euclideanDistance(b.view(), c.view());
+  const float ac = euclideanDistance(a.view(), c.view());
   // The triangle inequality is a non-trivial property for a metric;
   // a buggy distance (e.g., squared distance returned raw) would fail.
   EXPECT_LE(ac, ab + bc + 1e-5f)
@@ -2298,17 +2295,17 @@ TEST(VamanaRegression, GreedySearchRecoversExactQueryMatchFromIndex) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(static_cast<int64_t>(rows.size()));
 
   // Query = record[5]'s payload values (not the id).
   HDVector q(std::vector<float>{5.0f * 3.14f, 5.0f * -1.41f});
-  SearchResults r = v.greedySearch(q, 1);
+  SearchResults r = v.greedySearch(q.view(), 1);
 
   ASSERT_EQ(r.approximateNN.size(), 1U);
   auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
-  EXPECT_FLOAT_EQ(Vector::distance(q, *rec.vector), 0.0f)
+  EXPECT_FLOAT_EQ(euclideanDistance(q.view(), rec.values), 0.0f)
       << "exact query payload didn't recover its own record";
 }
 
@@ -2362,7 +2359,7 @@ TEST(VamanaRegression, BuildIndexRespectsDegreeThresholdGlobally) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   const int64_t R = 3;
   Vamana v(std::move(ds), R);
 
@@ -2379,15 +2376,15 @@ TEST(VamanaRegression, BuildIndexRespectsDegreeThresholdGlobally) {
 // identical file reads.  Reading the same file twice must report the same
 // dimension.
 // =========================================================================
-TEST(DataSetRegression, FileDataSetDimensionIsStableAcrossReopens) {
+TEST(DataSetRegression, FlatDataSetDimensionIsStableAcrossReopens) {
   const auto path = uniqueFixturePath("reopen_dim");
   ScopedFile cleanup{path};
 
   writeDatasetFile(path, 2, 4,
                    {{1.0f, 2.0f, 3.0f, 4.0f}, {5.0f, 6.0f, 7.0f, 8.0f}});
 
-  FileDataSet a(path);
-  FileDataSet b(path);
+  FlatDataSet a(path);
+  FlatDataSet b(path);
   EXPECT_EQ(a.getDimensions(), b.getDimensions());
   EXPECT_EQ(a.getN(), b.getN());
   EXPECT_EQ(a.getDimensions(), 3);
@@ -2410,7 +2407,7 @@ TEST(VamanaRegression, SetDistanceThresholdIsObservedByIsToBePruned) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   // With alpha very small (0.0001) every point should be pruned.
@@ -2444,12 +2441,12 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 4);
   v.setSearchListSize(16);
 
   HDVector q(std::vector<float>{7.2f, 7.2f});
-  SearchResults r = v.greedySearch(q, 3);
+  SearchResults r = v.greedySearch(q.view(), 3);
   ASSERT_FALSE(r.approximateNN.empty());
 
   // Brute force the true nearest.
@@ -2457,7 +2454,7 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
   float best = std::numeric_limits<float>::infinity();
   for (NodeId i = 0; i < static_cast<NodeId>(rows.size()); ++i) {
     auto rec = v.getRecordViewByIndex(i);
-    const float d = Vector::distance(q, *rec.vector);
+    const float d = euclideanDistance(q.view(), rec.values);
     if (d < best) {
       best = d;
       truth = i;
@@ -2471,10 +2468,10 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
 
 // =========================================================================
 // DataSet: fixture writer writes stored dim == dim + 1, and each record
-// contains an int64_t id followed by the float payload. Reading a record must produce a
-// vector whose dimension equals getDimensions(), not the raw storedDim.
+// contains an int64_t id followed by the float payload. Reading a record must
+// produce a view whose dimension equals getDimensions(), not the raw storedDim.
 // =========================================================================
-TEST(DataSetRegression, RecordVectorDimensionMatchesGetDimensions) {
+TEST(DataSetRegression, RecordViewDimensionMatchesGetDimensions) {
   const auto path = uniqueFixturePath("dim_match");
   ScopedFile cleanup{path};
 
@@ -2482,15 +2479,15 @@ TEST(DataSetRegression, RecordVectorDimensionMatchesGetDimensions) {
                    {{0.0f, 10.0f, 20.0f, 30.0f, 40.0f},
                     {1.0f, 11.0f, 21.0f, 31.0f, 41.0f}});
 
-  InMemoryDataSet mem(path);
-  FileDataSet disk(path);
+  FlatDataSet mem(path);
+  FlatDataSet disk(path);
 
   ASSERT_EQ(mem.getDimensions(), 4);
   ASSERT_EQ(disk.getDimensions(), 4);
 
   for (NodeId i = 0; i < 2; ++i) {
-    EXPECT_EQ(mem.getRecordViewByIndex(i).vector->getDimension(), 4);
-    EXPECT_EQ(disk.getRecordViewByIndex(i).vector->getDimension(), 4);
+    EXPECT_EQ(mem.getRecordViewByIndex(i).values.dimensions(), 4);
+    EXPECT_EQ(disk.getRecordViewByIndex(i).values.dimensions(), 4);
   }
 }
 
@@ -2512,7 +2509,7 @@ TEST(VamanaRegression, SetDistanceThresholdPersistsAcrossPruneCalls) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 3);
 
   v.setDistanceThreshold(1.0f);
@@ -2534,12 +2531,12 @@ TEST(VamanaRegression, GreedySearchReturnsSinglePointForOnePointDataset) {
   writeDatasetFile(path, 1, 3, {{42.0f, 7.0f, 8.0f}});
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 1);
   v.setSearchListSize(1);
 
   HDVector q(std::vector<float>{7.0f, 8.0f});
-  SearchResults r = v.greedySearch(q, 1);
+  SearchResults r = v.greedySearch(q.view(), 1);
   ASSERT_EQ(r.approximateNN.size(), 1U);
   EXPECT_EQ(r.approximateNN[0], 0);
 }
@@ -2561,20 +2558,20 @@ TEST(VamanaRegression, InsertIntoSetInsertsAtSortedPosition) {
   writeDatasetFile(path, rows.size(), 3, rows);
 
   std::srand(0);
-  auto ds = std::make_unique<InMemoryDataSet>(path);
+  auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
   HDVector q(std::vector<float>{2.0f, 2.0f});
   // Seed `working` with a proper distance-sorted sequence, then insert
   // a new element.  The result must remain sorted.
   NodeList working;
-  v.insertIntoSet({0, 1, 2, 3, 4}, working, q);
+  v.insertIntoSet({0, 1, 2, 3, 4}, working, q.view());
   ASSERT_EQ(working.size(), 5U);
 
   float prev_d = -1.0f;
   for (NodeId idx : working) {
     auto rec = v.getRecordViewByIndex(idx);
-    const float d = Vector::distance(q, *rec.vector);
+    const float d = euclideanDistance(q.view(), rec.values);
     EXPECT_GE(d, prev_d)
         << "insertIntoSet produced an out-of-order sequence";
     prev_d = d;
