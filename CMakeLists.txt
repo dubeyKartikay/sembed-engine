@@ -9,6 +9,8 @@ option(SEMBED_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(SEMBED_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_package(OpenMP REQUIRED)
+
 
 add_subdirectory(external)
 
@@ -45,7 +47,7 @@ target_include_directories(benchmark_support PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(batch_stochastic_kmeans PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(cli_support PUBLIC ${PROJECT_INCLUDE_DIR})
 
-target_link_libraries(utils PUBLIC sembed_project_options)
+target_link_libraries(utils PUBLIC sembed_project_options OpenMP::OpenMP_CXX)
 target_link_libraries(benchmark_support PUBLIC utils nlohmann_json::nlohmann_json)
 target_link_libraries(batch_stochastic_kmeans PUBLIC utils)
 target_link_libraries(cli_support PUBLIC utils CLI11::CLI11 nlohmann_json::nlohmann_json)
@@ -62,6 +64,7 @@ enable_testing()
 
 set(GLOVE_FIXTURE "${CMAKE_BINARY_DIR}/gvec.bin")
 set(WORD2VEC_FIXTURE "${CMAKE_BINARY_DIR}/w2v.bin")
+
 
 add_custom_command(
     OUTPUT "${GLOVE_FIXTURE}" "${WORD2VEC_FIXTURE}"

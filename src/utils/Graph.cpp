@@ -40,12 +40,14 @@ Graph::Graph(NodeId numberOfNodes, uint64_t degreeThreshold) {
   m_adjList =
       std::vector<NodeList>(static_cast<size_t>(numberOfNodes), NodeList());
   m_degreeThreshold = degreeThreshold;
-  auto rng =
-      makeDeterministicRng(0x6f72617068536565ULL, {numberOfNodes, degreeThreshold});
+  #pragma omp parallel for
   for (NodeId i = 0; i < numberOfNodes; ++i) {
+    auto rng = makeDeterministicRng(0x6f72617068536565ULL,
+                                    {numberOfNodes, degreeThreshold, i});
     m_adjList[static_cast<size_t>(i)] =
         generateRandomNumbers(m_degreeThreshold, numberOfNodes, rng, i);
   }
+
   m_medoid = numberOfNodes == 0 ? std::nullopt
                                 : OptionalNodeId(numberOfNodes / 2);
 }
