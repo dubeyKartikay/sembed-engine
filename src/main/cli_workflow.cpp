@@ -97,7 +97,7 @@ Json recordResultJson(const RecordView &queryRecord, const RecordView &resultRec
   return {{"node", node},
           {"record_id", resultRecord.recordId},
           {"distance",
-           HDVector::distance(*queryRecord.vector, *resultRecord.vector)}};
+           Vector::distance(*queryRecord.vector, *resultRecord.vector)}};
 }
 
 }  // namespace

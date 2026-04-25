@@ -49,15 +49,15 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
   searchListSize_ = 100;
 }
 struct customLess {
-    const HDVector *qNode;
+    const Vector *qNode;
     const Vamana *vamana;
-    customLess(const HDVector *qNode, const Vamana *vamana)
+    customLess(const Vector *qNode, const Vamana *vamana)
         : qNode(qNode), vamana(vamana){};
     bool operator()(NodeId l, NodeId r) {
       const float leftDistance =
-          HDVector::distance(*qNode, *(vamana->getRecordViewByIndex(l).vector));
+          Vector::distance(*qNode, *(vamana->getRecordViewByIndex(l).vector));
       const float rightDistance =
-          HDVector::distance(*qNode, *(vamana->getRecordViewByIndex(r).vector));
+          Vector::distance(*qNode, *(vamana->getRecordViewByIndex(r).vector));
       if (leftDistance == rightDistance) {
         return l < r;
       }
@@ -66,7 +66,7 @@ struct customLess {
   };
 void Vamana::insertIntoSet(const NodeList &from,
                            NodeList &to,
-                           const HDVector &comparison_vec) {
+                           const Vector &comparison_vec) {
   for (const NodeId outNode : from) {
 
     auto pos = std::lower_bound(to.begin(), to.end(), outNode,
@@ -81,7 +81,7 @@ void Vamana::insertIntoSet(const NodeList &from,
   }
 }
 
-SearchResults Vamana::greedySearch(const HDVector &node, uint64_t k) {
+SearchResults Vamana::greedySearch(const Vector &node, uint64_t k) {
   SearchResults searchResult;
   const OptionalNodeId medoid = graph_.getMedoid();
   if (!medoid || searchListSize_ == 0 || k == 0) {
@@ -118,18 +118,18 @@ SearchResults Vamana::greedySearch(const HDVector &node, uint64_t k) {
 }
 
 bool Vamana::isToBePruned(NodeId p_dash, NodeId p_star, NodeId p) {
-  std::shared_ptr<HDVector> p_dash_vec = dataSet_->getRecordViewByIndex(p_dash).vector;
-  std::shared_ptr<HDVector> p_star_vec = dataSet_->getRecordViewByIndex(p_star).vector;
-  std::shared_ptr<HDVector> p_vec = dataSet_->getRecordViewByIndex(p).vector;
+  std::shared_ptr<Vector> p_dash_vec = dataSet_->getRecordViewByIndex(p_dash).vector;
+  std::shared_ptr<Vector> p_star_vec = dataSet_->getRecordViewByIndex(p_star).vector;
+  std::shared_ptr<Vector> p_vec = dataSet_->getRecordViewByIndex(p).vector;
   float distanceFromP_starToP_dash =
-      HDVector::distance(*p_star_vec, *p_dash_vec);
-  float distanceFromPToP_dash = HDVector::distance(*p_vec, *p_dash_vec);
+      Vector::distance(*p_star_vec, *p_dash_vec);
+  float distanceFromPToP_dash = Vector::distance(*p_vec, *p_dash_vec);
   return distanceThreshold_ * distanceFromP_starToP_dash <=
          distanceFromPToP_dash;
 }
 
 void Vamana::prune(NodeId node, NodeList &candidateSet) {
-  std::shared_ptr<HDVector> p_vec = dataSet_->getRecordViewByIndex(node).vector;
+  std::shared_ptr<Vector> p_vec = dataSet_->getRecordViewByIndex(node).vector;
   const NodeList &outNeighbors = graph_.getOutNeighbors(node);
   NodeList candidates = candidateSet;
   insertIntoSet(outNeighbors, candidates, *p_vec);
@@ -199,7 +199,7 @@ void Vamana::buildIndex() {
 }
 
 std::unique_ptr<NodeList> Vamana::search(NodeId queryNode, uint64_t k) {
-  const HDVector & queryVector = *dataSet_->getRecordViewByIndex(queryNode).vector;
+  const Vector & queryVector = *dataSet_->getRecordViewByIndex(queryNode).vector;
   SearchResults searchResult = greedySearch(queryVector, k);
   return std::make_unique<NodeList>(searchResult.approximateNN);
 }

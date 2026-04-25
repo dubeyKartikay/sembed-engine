@@ -148,18 +148,18 @@ TEST(HDVectorRegression, DistanceIsSymmetric) {
   HDVector a(std::vector<float>{0.0f, 0.0f, 0.0f});
   HDVector b(std::vector<float>{3.0f, 4.0f, 12.0f});
 
-  EXPECT_FLOAT_EQ(HDVector::distance(a, b), HDVector::distance(b, a));
+  EXPECT_FLOAT_EQ(Vector::distance(a, b), Vector::distance(b, a));
 }
 
 TEST(HDVectorRegression, DistanceWithSelfIsZero) {
   HDVector v(std::vector<float>{1.5f, -2.25f, 0.125f, 9999.0f});
-  EXPECT_FLOAT_EQ(HDVector::distance(v, v), 0.0f);
+  EXPECT_FLOAT_EQ(Vector::distance(v, v), 0.0f);
 }
 
 TEST(HDVectorRegression, ZeroDimensionalVectorDistanceIsZero) {
   HDVector a(0);
   HDVector b(0);
-  EXPECT_FLOAT_EQ(HDVector::distance(a, b), 0.0f);
+  EXPECT_FLOAT_EQ(Vector::distance(a, b), 0.0f);
 }
 
 TEST(HDVectorRegression, ConstructorFromDimensionInitialisesZeros) {
@@ -633,9 +633,9 @@ TEST(VamanaRegression, InsertIntoSetDoesNotDuplicateExistingMembers) {
   std::sort(working.begin(), working.end(),
             [&v, &q](int64_t l, int64_t r) {
               const float ld =
-                  HDVector::distance(q, *v.getRecordViewByIndex(l).vector);
+                  Vector::distance(q, *v.getRecordViewByIndex(l).vector);
               const float rd =
-                  HDVector::distance(q, *v.getRecordViewByIndex(r).vector);
+                  Vector::distance(q, *v.getRecordViewByIndex(r).vector);
               if (ld == rd) {
                 return l < r;
               }
@@ -772,7 +772,7 @@ TEST(HDVectorRegression, DistanceWithLargeValuesDoesNotOverflow) {
   std::vector<float> b(4, 1e18f);
   HDVector va(a);
   HDVector vb(b);
-  const float d = HDVector::distance(va, vb);
+  const float d = Vector::distance(va, vb);
   EXPECT_TRUE(std::isfinite(d))
       << "distance overflowed to infinity for large magnitude vectors";
 }
@@ -964,7 +964,7 @@ TEST(VamanaRegression, GreedySearchOnDegenerateAllEqualDatasetPicksAnyRecord) {
   // Each returned neighbour must correspond to a zero-distance record.
   for (int64_t idx : r.approximateNN) {
     auto rec = v.getRecordViewByIndex(idx);
-    EXPECT_FLOAT_EQ(HDVector::distance(q, *rec.vector), 0.0f);
+    EXPECT_FLOAT_EQ(Vector::distance(q, *rec.vector), 0.0f);
   }
 
   // And the three returned indices must be distinct.
@@ -1462,7 +1462,7 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
   float prev = -1.0f;
   for (NodeId idx : r.approximateNN) {
     auto rec = v.getRecordViewByIndex(idx);
-    const float d = HDVector::distance(q, *rec.vector);
+    const float d = Vector::distance(q, *rec.vector);
     EXPECT_GE(d, prev)
         << "approximateNN not in ascending distance order at index " << idx;
     prev = d;
@@ -1616,7 +1616,7 @@ TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
   OptionalNodeId prev_id;
   for (NodeId idx : working) {
     auto rec = v.getRecordViewByIndex(idx);
-    const float d = HDVector::distance(q, *rec.vector);
+    const float d = Vector::distance(q, *rec.vector);
     if (d == prev) {
       ASSERT_TRUE(prev_id.has_value());
       EXPECT_GT(idx, prev_id.value())
@@ -1701,7 +1701,7 @@ TEST(DataSetRegression, RecordIdsMatchIndexForSequentialIds) {
   }
 }
 
-TEST(DataSetRegression, GetNHDVectorsReturnsCountEqualToRequestedRange) {
+TEST(DataSetRegression, GetNVectorsReturnsCountEqualToRequestedRange) {
   const auto path = uniqueFixturePath("range_hdvec");
   ScopedFile cleanup{path};
 
@@ -1715,8 +1715,8 @@ TEST(DataSetRegression, GetNHDVectorsReturnsCountEqualToRequestedRange) {
   InMemoryDataSet mem(path);
   FileDataSet disk(path);
 
-  auto mem_vecs = mem.getNHDVectorsFromIndex(2, 5);
-  auto disk_vecs = disk.getNHDVectorsFromIndex(2, 5);
+  auto mem_vecs = mem.getNVectorsFromIndex(2, 5);
+  auto disk_vecs = disk.getNVectorsFromIndex(2, 5);
 
   ASSERT_NE(mem_vecs, nullptr);
   ASSERT_NE(disk_vecs, nullptr);
@@ -2271,9 +2271,9 @@ TEST(HDVectorRegression, DistanceTriangleInequalityHolds) {
   HDVector b(std::vector<float>{3.0f, 0.0f});
   HDVector c(std::vector<float>{3.0f, 4.0f});
 
-  const float ab = HDVector::distance(a, b);
-  const float bc = HDVector::distance(b, c);
-  const float ac = HDVector::distance(a, c);
+  const float ab = Vector::distance(a, b);
+  const float bc = Vector::distance(b, c);
+  const float ac = Vector::distance(a, c);
   // The triangle inequality is a non-trivial property for a metric;
   // a buggy distance (e.g., squared distance returned raw) would fail.
   EXPECT_LE(ac, ab + bc + 1e-5f)
@@ -2308,7 +2308,7 @@ TEST(VamanaRegression, GreedySearchRecoversExactQueryMatchFromIndex) {
 
   ASSERT_EQ(r.approximateNN.size(), 1U);
   auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
-  EXPECT_FLOAT_EQ(HDVector::distance(q, *rec.vector), 0.0f)
+  EXPECT_FLOAT_EQ(Vector::distance(q, *rec.vector), 0.0f)
       << "exact query payload didn't recover its own record";
 }
 
@@ -2457,7 +2457,7 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
   float best = std::numeric_limits<float>::infinity();
   for (NodeId i = 0; i < static_cast<NodeId>(rows.size()); ++i) {
     auto rec = v.getRecordViewByIndex(i);
-    const float d = HDVector::distance(q, *rec.vector);
+    const float d = Vector::distance(q, *rec.vector);
     if (d < best) {
       best = d;
       truth = i;
@@ -2574,7 +2574,7 @@ TEST(VamanaRegression, InsertIntoSetInsertsAtSortedPosition) {
   float prev_d = -1.0f;
   for (NodeId idx : working) {
     auto rec = v.getRecordViewByIndex(idx);
-    const float d = HDVector::distance(q, *rec.vector);
+    const float d = Vector::distance(q, *rec.vector);
     EXPECT_GE(d, prev_d)
         << "insertIntoSet produced an out-of-order sequence";
     prev_d = d;

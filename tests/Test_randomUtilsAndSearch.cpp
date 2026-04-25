@@ -66,6 +66,6 @@ TEST(VamanaSearchRegression, ExactRecallWhenSearchListEqualsDatasetSize) {
   ASSERT_EQ(r.approximateNN.size(), 1U);
 
   const auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
-  EXPECT_NEAR(HDVector::distance(q, *rec.vector), 0.0f, 1.0e-6f)
+  EXPECT_NEAR(Vector::distance(q, *rec.vector), 0.0f, 1.0e-6f)
       << "with L == N the exact nearest neighbour should be recoverable";
 }
