@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <vector>
 
+#include "armadillo"
 #include "vector_view.hpp"
 
 namespace fs = std::filesystem;
@@ -38,7 +39,7 @@ public:
 class FlatDataSet : public DataSet {
 private:
   std::vector<int64_t> m_recordIds;
-  std::vector<float> m_values;
+  arma::fmat m_matrix;
 
 public:
   explicit FlatDataSet(fs::path path);

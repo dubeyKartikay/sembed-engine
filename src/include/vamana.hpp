@@ -9,7 +9,6 @@
 #include "graph.hpp"
 #include "node_types.hpp"
 #include "searchresults.hpp"
-#include "utils.hpp"
 #include "vector_view.hpp"
 
 class Vamana {

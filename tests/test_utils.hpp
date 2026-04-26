@@ -89,8 +89,13 @@ inline std::filesystem::path writeDatasetFile(
       throw std::invalid_argument(
           "dataset fixture row width does not match header");
     }
+  }
+
+  for (const auto &row : rows) {
     const int64_t record_id = static_cast<int64_t>(row.front());
     out.write(reinterpret_cast<const char *>(&record_id), sizeof(record_id));
+  }
+  for (const auto &row : rows) {
     out.write(reinterpret_cast<const char *>(row.data() + 1),
               static_cast<std::streamsize>((row.size() - 1) * sizeof(float)));
   }

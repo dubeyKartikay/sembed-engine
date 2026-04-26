@@ -33,7 +33,10 @@ int main(int argc , char ** argv){
   printf("%lld",tot_dim);
   fwrite(&tot_dim, sizeof(tot_dim), 1, o);
   int64_t words = 0;
-  
+
+  for (int64_t id = 0; id < n; id++) {
+    fwrite(&id, sizeof(id), 1, o);
+  }
 
   while (words < n) {
     float vector[dimentions];
@@ -43,7 +46,6 @@ int main(int argc , char ** argv){
     for (int i = 0; i < dimentions; i++) {
       fscanf(p,"%f",vector+i);
     }
-    fwrite(&words, sizeof(words), 1, o);
     fwrite(vector, sizeof(float), dimentions, o);
     words++;
   }

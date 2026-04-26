@@ -46,19 +46,14 @@ FlatDataSet::FlatDataSet(fs::path path) {
   }
 
   m_recordIds.resize(static_cast<size_t>(m_n));
-  m_values.resize(static_cast<size_t>(m_n * m_dimensions));
+  m_matrix.zeros(m_dimensions, m_n);
 
-  for (uint64_t row = 0; row < m_n; ++row) {
-    file.read(reinterpret_cast<char *>(
-                  &m_recordIds.at(static_cast<size_t>(row))),
-              sizeof(int64_t));
-    float *rowData =
-        m_values.data() + static_cast<size_t>(row * m_dimensions);
-    file.read(reinterpret_cast<char *>(rowData),
-              static_cast<std::streamsize>(m_dimensions * sizeof(float)));
-    if (!file) {
-      throw std::runtime_error("failed to read dataset into memory");
-    }
+  file.read(reinterpret_cast<char *>(m_recordIds.data()),
+            static_cast<std::streamsize>(sizeof(int64_t) * m_n));
+  file.read(reinterpret_cast<char *>(m_matrix.memptr()),
+            static_cast<std::streamsize>(sizeof(float) * m_n * m_dimensions));
+  if (!file) {
+    throw std::runtime_error("failed to read dataset data");
   }
 }
 
@@ -66,10 +61,8 @@ RecordView FlatDataSet::getRecordViewByIndex(uint64_t index) const {
   if (index >= m_n) {
     throw std::out_of_range("record index is outside dataset bounds");
   }
-
-  const size_t offset = static_cast<size_t>(index * m_dimensions);
   return {m_recordIds.at(static_cast<size_t>(index)),
-          FloatVectorView(m_values.data() + offset, m_dimensions)};
+          FloatVectorView(m_matrix.colptr(index), m_dimensions)};
 }
 
 std::vector<RecordView> FlatDataSet::getRecordViewsFromIndex(

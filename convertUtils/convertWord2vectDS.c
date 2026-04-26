@@ -80,6 +80,9 @@ int main(int argc, char **argv) {
   {
     const int64_t id = (int64_t)i;
     fwrite(&id,sizeof(id),1,f_out);
+  }
+  for (long long int i = 0; i < words; i++)
+  {
     fwrite(&M[i*size],sizeof(float),size,f_out);
     // for ( a = 0; a < size; a++)
     // {
