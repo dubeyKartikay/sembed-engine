@@ -6,17 +6,18 @@
 
 #include "dataset.hpp"
 #include "node_types.hpp"
+#include "vector_view.hpp"
 
 struct Point {
-  NodeId clusterId;
+  NodeId clusterId = 0;
   RecordView record;
 
-  float distance(const Point &other) const {
-    return Vector::distance(*record.vector, *other.record.vector);
+  float distanceSquared(const Point &other) const {
+    return squaredDistance(record.values, other.record.values);
   }
 
-  float distance(const RecordView &other) const {
-    return Vector::distance(*record.vector, *other.vector);
+  float distanceSquared(const RecordView &other) const {
+    return squaredDistance(record.values, other.values);
   }
 };
 

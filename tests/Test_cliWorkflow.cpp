@@ -32,7 +32,6 @@ TEST(CliWorkflow, BuildIndexWritesGraphAndReportsMetadata) {
   BuildIndexOptions options;
   options.datasetPath = datasetPath;
   options.outputPath = indexPath;
-  options.dataSetMode = CliDataSetMode::Memory;
   options.degreeThreshold = 2;
   options.distanceThreshold = 1.2f;
 
@@ -61,7 +60,6 @@ TEST(CliWorkflow, QueryIndexReturnsNeighborResults) {
   BuildIndexOptions buildOptions;
   buildOptions.datasetPath = datasetPath;
   buildOptions.outputPath = indexPath;
-  buildOptions.dataSetMode = CliDataSetMode::Memory;
   buildOptions.degreeThreshold = 3;
   buildOptions.distanceThreshold = 1.2f;
   (void)buildIndexWorkflow(buildOptions);
@@ -69,7 +67,6 @@ TEST(CliWorkflow, QueryIndexReturnsNeighborResults) {
   QueryIndexOptions queryOptions;
   queryOptions.datasetPath = datasetPath;
   queryOptions.indexPath = indexPath;
-  queryOptions.dataSetMode = CliDataSetMode::Memory;
   queryOptions.queryNode = 2;
   queryOptions.k = 3;
   queryOptions.searchListSize = 5;
@@ -96,7 +93,6 @@ TEST(CliWorkflow, InspectIndexReportsGraphAndDatasetShape) {
   BuildIndexOptions buildOptions;
   buildOptions.datasetPath = datasetPath;
   buildOptions.outputPath = indexPath;
-  buildOptions.dataSetMode = CliDataSetMode::Memory;
   buildOptions.degreeThreshold = 2;
   buildOptions.distanceThreshold = 1.2f;
   (void)buildIndexWorkflow(buildOptions);
@@ -104,7 +100,6 @@ TEST(CliWorkflow, InspectIndexReportsGraphAndDatasetShape) {
   InspectIndexOptions inspectOptions;
   inspectOptions.indexPath = indexPath;
   inspectOptions.datasetPath = datasetPath;
-  inspectOptions.dataSetMode = CliDataSetMode::Memory;
 
   const Json result = Json::parse(inspectIndexWorkflow(inspectOptions));
 

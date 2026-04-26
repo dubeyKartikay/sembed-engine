@@ -63,7 +63,6 @@ TEST(BenchmarkHarnessRuntime, BruteForceBenchmarkReportsPerfectRecall) {
   BenchmarkParameters parameters;
   parameters.algorithm = BenchmarkAlgorithm::BruteForce;
   parameters.datasetPath = datasetPath;
-  parameters.datasetMode = BenchmarkDataSetMode::Memory;
   parameters.artifactDir = artifactDir;
   parameters.queryCount = 3;
   parameters.k = 2;
@@ -82,7 +81,7 @@ TEST(BenchmarkHarnessRuntime, BruteForceBenchmarkReportsPerfectRecall) {
 
   const auto parsed = nlohmann::json::parse(json);
   EXPECT_EQ(parsed.at("algorithm"), "bruteforce");
-  EXPECT_EQ(parsed.at("dataset").at("mode"), "memory");
+  EXPECT_FALSE(parsed.at("dataset").contains("mode"));
   EXPECT_EQ(parsed.at("workload").at("query_dataset_path"), nullptr);
   EXPECT_EQ(parsed.at("parameters").at("degree_threshold"), nullptr);
   EXPECT_EQ(parsed.at("parameters").at("search_list_size"), nullptr);
@@ -104,7 +103,6 @@ TEST(BenchmarkHarnessRuntime, VamanaBenchmarkReportsPersistenceMetrics) {
   BenchmarkParameters parameters;
   parameters.algorithm = BenchmarkAlgorithm::Vamana;
   parameters.datasetPath = datasetPath;
-  parameters.datasetMode = BenchmarkDataSetMode::Memory;
   parameters.artifactDir = artifactDir;
   parameters.queryCount = 3;
   parameters.k = 1;
@@ -127,7 +125,7 @@ TEST(BenchmarkHarnessRuntime, VamanaBenchmarkReportsPersistenceMetrics) {
   EXPECT_GE(result.metrics.recallAtK, 0.0);
   EXPECT_LE(result.metrics.recallAtK, 1.0);
   EXPECT_EQ(parsed.at("algorithm"), "vamana");
-  EXPECT_EQ(parsed.at("dataset").at("mode"), "memory");
+  EXPECT_FALSE(parsed.at("dataset").contains("mode"));
   EXPECT_EQ(parsed.at("parameters").at("degree_threshold"), 2);
   EXPECT_EQ(parsed.at("parameters").at("search_list_size"), 4);
   EXPECT_NEAR(parsed.at("parameters").at("distance_threshold").get<double>(),

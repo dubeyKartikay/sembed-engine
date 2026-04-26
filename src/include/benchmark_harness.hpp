@@ -14,17 +14,11 @@ enum class BenchmarkAlgorithm {
   Vamana,
 };
 
-enum class BenchmarkDataSetMode {
-  File,
-  Memory,
-};
-
 struct BenchmarkParameters {
   BenchmarkAlgorithm algorithm = BenchmarkAlgorithm::BruteForce;
   std::filesystem::path datasetPath;
   std::optional<std::filesystem::path> queryDatasetPath;
   std::filesystem::path artifactDir = "benchmark-artifacts";
-  BenchmarkDataSetMode datasetMode = BenchmarkDataSetMode::Memory;
   uint64_t queryCount = 0;
   uint64_t k = 10;
   uint64_t seed = 0x53454d424544ULL;
@@ -51,7 +45,6 @@ struct BenchmarkMetrics {
 
 struct BenchmarkResult {
   BenchmarkAlgorithm algorithm = BenchmarkAlgorithm::BruteForce;
-  BenchmarkDataSetMode datasetMode = BenchmarkDataSetMode::Memory;
   std::filesystem::path datasetPath;
   std::optional<std::filesystem::path> queryDatasetPath;
   uint64_t datasetSize = 0;

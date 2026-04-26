@@ -8,7 +8,6 @@
         "algorithm": "bruteforce",
         "dataset": {
           "dimensions": 50,
-          "mode": "memory",
           "path": "build/gvec.bin",
           "records": 256
         },
@@ -47,7 +46,6 @@
         "algorithm": "vamana",
         "dataset": {
           "dimensions": 50,
-          "mode": "memory",
           "path": "build/gvec.bin",
           "records": 256
         },
@@ -86,7 +84,6 @@
         "algorithm": "bruteforce",
         "dataset": {
           "dimensions": 300,
-          "mode": "memory",
           "path": "build/w2v.bin",
           "records": 256
         },
@@ -125,7 +122,6 @@
         "algorithm": "vamana",
         "dataset": {
           "dimensions": 300,
-          "mode": "memory",
           "path": "build/w2v.bin",
           "records": 256
         },

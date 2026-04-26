@@ -1,5 +1,6 @@
 #include "dataset.hpp"
 #include "test_utils.hpp"
+
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <limits>
@@ -19,7 +20,7 @@ struct TestFixtureData {
   };
 };
 
-template <typename DataSetType> class DataSetApiTest : public ::testing::Test {
+class DataSetApiTest : public ::testing::Test {
 protected:
   TestFixtureData fixture;
   std::filesystem::path datasetPath;
@@ -34,105 +35,80 @@ protected:
     testutils::ScopedPathCleanup cleanup(datasetPath);
   }
 
-  std::unique_ptr<DataSetType> makeDataSet() {
-    return std::make_unique<DataSetType>(datasetPath);
+  std::unique_ptr<FlatDataSet> makeDataSet() {
+    return std::make_unique<FlatDataSet>(datasetPath);
   }
 };
 
-using DataSetImplementations = ::testing::Types<FileDataSet, InMemoryDataSet>;
-TYPED_TEST_SUITE(DataSetApiTest, DataSetImplementations);
+TEST_F(DataSetApiTest, ReportsDatasetShape) {
+  auto dataSet = makeDataSet();
 
-TYPED_TEST(DataSetApiTest, ReportsDatasetShape) {
-  auto dataSet = this->makeDataSet();
-
-  EXPECT_EQ(dataSet->getN(), this->fixture.n);
-  EXPECT_EQ(dataSet->getDimensions(), this->fixture.dimensions - 1);
+  EXPECT_EQ(dataSet->getN(), fixture.n);
+  EXPECT_EQ(dataSet->getDimensions(), fixture.dimensions - 1);
 }
 
-TYPED_TEST(DataSetApiTest, ReturnsRecordViewsByIndex) {
-  auto dataSet = this->makeDataSet();
+TEST_F(DataSetApiTest, ReturnsRecordViewsByIndex) {
+  auto dataSet = makeDataSet();
 
-  for (int64_t row_index = 0;
-       row_index < static_cast<int64_t>(this->fixture.rows.size());
-       ++row_index) {
-    auto record = dataSet->getRecordViewByIndex(row_index);
-    ASSERT_NE(record.vector, nullptr);
+  for (int64_t rowIndex = 0;
+       rowIndex < static_cast<int64_t>(fixture.rows.size()); ++rowIndex) {
+    auto record = dataSet->getRecordViewByIndex(rowIndex);
+    ASSERT_NE(record.values.data(), nullptr);
+    EXPECT_EQ(record.recordId, static_cast<int64_t>(fixture.rows[rowIndex][0]));
+    EXPECT_EQ(record.values.dimensions(), fixture.dimensions - 1);
+
+    for (uint64_t dim = 0; dim < record.values.dimensions(); ++dim) {
+      EXPECT_FLOAT_EQ(record.values[dim], fixture.rows[rowIndex][dim + 1]);
+    }
+  }
+}
+
+TEST_F(DataSetApiTest, ReturnsContiguousRecordRangesFromIndex) {
+  auto dataSet = makeDataSet();
+
+  auto records = dataSet->getRecordViewsFromIndex(1, 2);
+
+  ASSERT_EQ(records.size(), 2U);
+  for (uint64_t offset = 0; offset < records.size(); ++offset) {
+    const RecordView &record = records.at(static_cast<size_t>(offset));
+    ASSERT_NE(record.values.data(), nullptr);
     EXPECT_EQ(record.recordId,
-              static_cast<int64_t>(this->fixture.rows[row_index][0]));
-    EXPECT_EQ(record.vector->getDimension(), this->fixture.dimensions - 1);
-
-    for (int64_t dim = 0;
-         dim < static_cast<int64_t>(record.vector->getDimension()); ++dim) {
-      EXPECT_FLOAT_EQ((*record.vector)[dim],
-                      this->fixture.rows[row_index][dim + 1]);
+              static_cast<int64_t>(fixture.rows[offset + 1][0]));
+    ASSERT_EQ(record.values.dimensions(), fixture.dimensions - 1);
+    for (uint64_t dim = 0; dim < record.values.dimensions(); ++dim) {
+      EXPECT_FLOAT_EQ(record.values[dim], fixture.rows[offset + 1][dim + 1]);
     }
   }
 }
 
-TYPED_TEST(DataSetApiTest, ReturnsContiguousRecordRangesFromIndex) {
-  auto dataSet = this->makeDataSet();
+TEST_F(DataSetApiTest, AllowsEmptyRangeAtEnd) {
+  auto dataSet = makeDataSet();
 
-  auto records = dataSet->getNRecordViewsFromIndex(1, 2);
-
-  ASSERT_NE(records, nullptr);
-  ASSERT_EQ(records->size(), 2U);
-
-  for (int64_t offset = 0;
-       offset < static_cast<int64_t>(records->size()); ++offset) {
-    const RecordView &record = records->at(offset);
-    ASSERT_NE(record.vector, nullptr);
-    EXPECT_EQ(record.recordId,
-              static_cast<int64_t>(this->fixture.rows[offset + 1][0]));
-    ASSERT_EQ(record.vector->getDimension(), this->fixture.dimensions - 1);
-    for (int64_t dim = 0;
-         dim < static_cast<int64_t>(record.vector->getDimension()); ++dim) {
-      EXPECT_FLOAT_EQ((*record.vector)[dim],
-                      this->fixture.rows[offset + 1][dim + 1]);
-    }
-  }
+  auto records = dataSet->getRecordViewsFromIndex(fixture.rows.size(), 0);
+  EXPECT_TRUE(records.empty());
 }
 
-TYPED_TEST(DataSetApiTest, ReturnsContiguousVectorRangesFromIndex) {
-  auto dataSet = this->makeDataSet();
-
-  auto vectors = dataSet->getNVectorsFromIndex(1, 2);
-
-  ASSERT_NE(vectors, nullptr);
-  ASSERT_EQ(vectors->size(), 2U);
-
-  for (int64_t offset = 0;
-       offset < static_cast<int64_t>(vectors->size()); ++offset) {
-    ASSERT_NE(vectors->at(offset), nullptr);
-    for (int64_t dim = 0;
-         dim < static_cast<int64_t>(vectors->at(offset)->getDimension());
-         ++dim) {
-      EXPECT_FLOAT_EQ((*vectors->at(offset))[dim],
-                      this->fixture.rows[offset + 1][dim + 1]);
-    }
-  }
-}
-
-TYPED_TEST(DataSetApiTest, RejectsOutOfBoundsRecordIndex) {
-  auto dataSet = this->makeDataSet();
+TEST_F(DataSetApiTest, RejectsOutOfBoundsRecordIndex) {
+  auto dataSet = makeDataSet();
 
   EXPECT_THROW((void)dataSet->getRecordViewByIndex(
                    std::numeric_limits<uint64_t>::max()),
                std::out_of_range);
-  EXPECT_THROW((void)dataSet->getRecordViewByIndex(this->fixture.rows.size()),
+  EXPECT_THROW((void)dataSet->getRecordViewByIndex(fixture.rows.size()),
                std::out_of_range);
 }
 
-TYPED_TEST(DataSetApiTest, RejectsOutOfBoundsRecordRanges) {
-  auto dataSet = this->makeDataSet();
+TEST_F(DataSetApiTest, RejectsOutOfBoundsRecordRanges) {
+  auto dataSet = makeDataSet();
 
-  EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(3, 2),
+  EXPECT_THROW((void)dataSet->getRecordViewsFromIndex(3, 2),
                std::out_of_range);
-  EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(
+  EXPECT_THROW((void)dataSet->getRecordViewsFromIndex(
                    std::numeric_limits<uint64_t>::max(), 1),
                std::out_of_range);
-  EXPECT_THROW((void)dataSet->getNRecordViewsFromIndex(
+  EXPECT_THROW((void)dataSet->getRecordViewsFromIndex(
                    1, std::numeric_limits<uint64_t>::max()),
                std::out_of_range);
 }
 
-} // namespace
+}  // namespace

@@ -76,7 +76,6 @@ def run_single_benchmark(
 
     optional_args = {
         "--query-dataset": run_config.get("query_dataset"),
-        "--dataset-mode": run_config.get("dataset_mode"),
         "--query-count": run_config.get("query_count"),
         "--k": run_config.get("k"),
         "--seed": run_config.get("seed"),

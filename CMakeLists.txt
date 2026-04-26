@@ -10,6 +10,7 @@ option(SEMBED_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(OpenMP REQUIRED)
+find_package(Armadillo QUIET)
 
 
 add_subdirectory(external)
@@ -29,11 +30,27 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     endif()
 endif()
 
+if(ARMADILLO_FOUND)
+    add_library(sembed_armadillo INTERFACE)
+    target_include_directories(sembed_armadillo INTERFACE ${ARMADILLO_INCLUDE_DIRS})
+    target_link_libraries(sembed_armadillo INTERFACE ${ARMADILLO_LIBRARIES})
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        armadillo
+        GIT_REPOSITORY https://gitlab.com/conradsnicta/armadillo-code.git
+        GIT_TAG 36b0cd37ec7f8598cd3705e5eae8b4ad01f69559 # 15.2.6
+    )
+    FetchContent_MakeAvailable(armadillo)
+    add_library(sembed_armadillo INTERFACE)
+    target_link_libraries(sembed_armadillo INTERFACE armadillo)
+endif()
+
+
 add_library(utils STATIC
-    src/utils/Vector.cpp
+    src/utils/ArmaVector.cpp
     src/utils/randomUtils.cpp
-    src/utils/inMemDataset.cpp
-    src/utils/diskUtils.cpp
+    src/utils/flatDataset.cpp
     src/utils/HDVector.cpp
     src/utils/Vamana.cpp
     src/utils/Graph.cpp
@@ -47,7 +64,7 @@ target_include_directories(benchmark_support PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(batch_stochastic_kmeans PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(cli_support PUBLIC ${PROJECT_INCLUDE_DIR})
 
-target_link_libraries(utils PUBLIC sembed_project_options OpenMP::OpenMP_CXX)
+target_link_libraries(utils PUBLIC sembed_project_options OpenMP::OpenMP_CXX sembed_armadillo)
 target_link_libraries(benchmark_support PUBLIC utils nlohmann_json::nlohmann_json)
 target_link_libraries(batch_stochastic_kmeans PUBLIC utils)
 target_link_libraries(cli_support PUBLIC utils CLI11::CLI11 nlohmann_json::nlohmann_json)

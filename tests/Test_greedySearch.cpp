@@ -106,7 +106,7 @@ protected:
   }
 };
 
-using DeterministicDataSets = ::testing::Types<FileDataSet, InMemoryDataSet>;
+using DeterministicDataSets = ::testing::Types<FlatDataSet, FlatDataSet>;
 TYPED_TEST_SUITE(DeterministicANNTest, DeterministicDataSets);
 
 template <typename DataSetType>
@@ -160,7 +160,7 @@ TEST(VamanaIndexConstruction, BuildIndexDoesNotDuplicateExistingBacklinks) {
                               fixture.rows);
 
   std::srand(0);
-  auto dataSet = std::make_unique<FileDataSet>(datasetPath);
+  auto dataSet = std::make_unique<FlatDataSet>(datasetPath);
   Vamana vamana(std::move(dataSet), 3);
 
   // Seed a reciprocal edge from a late node back to an early node in the fixed
@@ -209,7 +209,7 @@ TYPED_TEST(DeterministicANNTest, SelfQueriesReturnExactRecord) {
     const std::vector<float> queryValues(this->fixture.rows[row_index].begin() + 1,
                                          this->fixture.rows[row_index].end());
     HDVector query(queryValues);
-    SearchResults results = vamana.greedySearch(query, 1);
+    SearchResults results = vamana.greedySearch(query.view(), 1);
 
     ASSERT_EQ(results.approximateNN.size(), 1U);
     EXPECT_EQ(results.approximateNN.front(), row_index);
@@ -224,7 +224,7 @@ TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) 
 
   const std::vector<float> queryValues = {11.1f, 10.0f};
   HDVector query(queryValues);
-  SearchResults results = vamana.greedySearch(query, 3);
+  SearchResults results = vamana.greedySearch(query.view(), 3);
 
   ASSERT_EQ(results.approximateNN.size(), 3U);
 
@@ -234,9 +234,9 @@ TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) 
     unique.insert(candidate);
 
     const auto record = vamana.getRecordViewByIndex(candidate);
-    std::vector<float> payload(record.vector->getDimension(), 0.0f);
-    for (int64_t dim = 0; dim < static_cast<int64_t>(record.vector->getDimension()); ++dim) {
-      payload[dim] = (*record.vector)[dim];
+    std::vector<float> payload(record.values.dimensions(), 0.0f);
+    for (uint64_t dim = 0; dim < record.values.dimensions(); ++dim) {
+      payload[static_cast<size_t>(dim)] = record.values[dim];
     }
     const float currentDistance = squaredDistance(payload, queryValues);
     EXPECT_GE(currentDistance, previousDistance);
@@ -254,7 +254,7 @@ TYPED_TEST(DeterministicANNTest,
 
   const std::vector<float> queryValues = {11.1f, 10.0f};
   HDVector query(queryValues);
-  SearchResults results = vamana.greedySearch(query, 1);
+  SearchResults results = vamana.greedySearch(query.view(), 1);
   const NodeList exact = exactNearestIds(this->fixture, queryValues, 1);
 
   ASSERT_EQ(results.approximateNN.size(), 1U);
@@ -293,7 +293,7 @@ TYPED_TEST(LargeDeterministicANNTest, SelfQueriesReturnExactRecordAcrossGraph) {
     const std::vector<float> queryValues(this->fixture.rows[row_index].begin() + 1,
                                          this->fixture.rows[row_index].end());
     HDVector query(queryValues);
-    SearchResults results = vamana.greedySearch(query, 1);
+    SearchResults results = vamana.greedySearch(query.view(), 1);
 
     ASSERT_EQ(results.approximateNN.size(), 1U);
     EXPECT_EQ(results.approximateNN.front(), row_index);
@@ -309,7 +309,7 @@ TYPED_TEST(LargeDeterministicANNTest,
 
   const std::vector<float> queryValues = {203.25f, 0.5f};
   HDVector query(queryValues);
-  SearchResults results = vamana.greedySearch(query, 5);
+  SearchResults results = vamana.greedySearch(query.view(), 5);
   const NodeList exact = exactNearestIds(this->fixture, queryValues, 5);
 
   ASSERT_EQ(results.approximateNN.size(), 5U);

@@ -4,9 +4,9 @@
 
 It provides:
 
-- `Vector`, an abstract interface for dense vector operations.
-- `HDVector`, the default dense floating-point `Vector` implementation.
-- `FileDataSet` and `InMemoryDataSet` loaders for binary embedding corpora.
+- `FloatVectorView`, a lightweight non-owning view for dense float vectors.
+- `HDVector` and `ArmaVector`, owned dense vector containers that expose views.
+- `FlatDataSet`, a contiguous in-memory loader for binary embedding corpora.
 - A Vamana-style graph index for approximate nearest neighbor search.
 - Graph persistence with truncated-file, bad-adjacency, and trailing-byte checks.
 - A real `sembed` CLI with `build-index`, `query-index`, and `inspect-index`.
@@ -40,6 +40,22 @@ You need:
 - Python 3
 - Git, so the vendored submodules can be initialized
 - A CMake generator such as `Ninja` or `Unix Makefiles`
+- Armadillo C++ linear algebra library, if already available locally
+
+On Debian/Ubuntu, install Armadillo with:
+
+```sh
+sudo apt install libarmadillo-dev
+```
+
+On macOS with Homebrew:
+
+```sh
+brew install armadillo
+```
+
+If Armadillo is not installed locally, CMake fetches the pinned upstream
+Armadillo source during configure.
 
 ## Build
 
@@ -75,6 +91,10 @@ The repository vendors third-party C++ dependencies under [`external`](external)
 - `googletest` for tests
 - `CLI11` for the CLI binaries
 - `nlohmann/json` for benchmark and CLI JSON output
+
+Armadillo is resolved with CMake's `find_package(Armadillo)` when available, or
+fetched from the pinned upstream source otherwise. It is linked through the
+project libraries, so code under `src` can include `<armadillo>`.
 
 ## Test
 
@@ -156,7 +176,6 @@ Run one benchmark directly:
 ./build/sembed_benchmark \
   --algorithm vamana \
   --dataset ./build/gvec.bin \
-  --dataset-mode memory \
   --query-count 32 \
   --k 10 \
   --degree-threshold 32 \
@@ -187,7 +206,6 @@ is currently `null` because the engine does not expose an insert API yet.
 ```sh
 ./build/sembed build-index \
   --dataset ./build/gvec.bin \
-  --dataset-mode memory \
   --degree-threshold 32 \
   --distance-threshold 1.2 \
   --output ./build/demo.graph
@@ -196,7 +214,6 @@ is currently `null` because the engine does not expose an insert API yet.
 ```sh
 ./build/sembed query-index \
   --dataset ./build/gvec.bin \
-  --dataset-mode memory \
   --index ./build/demo.graph \
   --query-node 42 \
   --k 10 \
@@ -206,8 +223,7 @@ is currently `null` because the engine does not expose an insert API yet.
 ```sh
 ./build/sembed inspect-index \
   --index ./build/demo.graph \
-  --dataset ./build/gvec.bin \
-  --dataset-mode memory
+  --dataset ./build/gvec.bin
 ```
 
 Each subcommand writes JSON to stdout so it can be piped into scripts or
@@ -217,8 +233,9 @@ captured directly in CI.
 
 The main headers are:
 
-- [`src/include/Vector.hpp`](src/include/Vector.hpp)
+- [`src/include/vector_view.hpp`](src/include/vector_view.hpp)
 - [`src/include/HDVector.hpp`](src/include/HDVector.hpp)
+- [`src/include/ArmaVector.hpp`](src/include/ArmaVector.hpp)
 - [`src/include/dataset.hpp`](src/include/dataset.hpp)
 - [`src/include/graph.hpp`](src/include/graph.hpp)
 - [`src/include/vamana.hpp`](src/include/vamana.hpp)
@@ -226,10 +243,9 @@ The main headers are:
 
 ### 1. Loading a dataset
 
-There are two dataset implementations:
+There is one public dataset implementation:
 
-- `FileDataSet`: reads records from disk on demand with lower upfront RAM use.
-- `InMemoryDataSet`: loads the full dataset up front for better repeated-query throughput.
+- `FlatDataSet`: loads records into flat row-major contiguous memory.
 
 Example:
 
@@ -238,17 +254,16 @@ Example:
 #include "dataset.hpp"
 
 int main() {
-  auto dataset = std::make_unique<InMemoryDataSet>("build/gvec.bin");
+  auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
 
   const uint64_t n = dataset->getN();
   const uint64_t d = dataset->getDimensions();
 
   RecordView record = dataset->getRecordViewByIndex(0);
   int64_t id = record.recordId;
-  float firstValue = (*record.vector)[0];
+  float firstValue = record.values[0];
 
-  auto batch = dataset->getNRecordViewsFromIndex(10, 5);
-  auto vectors = dataset->getNVectorsFromIndex(10, 5);
+  auto batch = dataset->getRecordViewsFromIndex(10, 5);
 }
 ```
 
@@ -258,41 +273,40 @@ Key methods:
 - `getDimensions()`: vector dimensionality, excluding the stored record id
 - `getStoredDimensions()`: raw on-disk row width including the record id slot
 - `getRecordViewByIndex(i)`: fetch one record
-- `getNRecordViewsFromIndex(i, count)`: fetch a contiguous range
-- `getNVectorsFromIndex(i, count)`: fetch only the vectors from a range
+- `getRecordViewsFromIndex(i, count)`: fetch a contiguous range
 
 Trade-offs:
 
-- `InMemoryDataSet` is the better default for benchmarks, repeated queries, and
-  hot-serving paths where startup cost is acceptable.
-- `FileDataSet` is useful when the dataset is too large to load eagerly or when
-  you want lower resident memory at the cost of repeated file I/O.
-- An mmap-backed loader is a future improvement and is not implemented yet.
+- `FlatDataSet` is the current default for benchmarks, repeated queries, and
+  index building because records are stable contiguous views with no per-row
+  vector allocation.
+- `MmapDataSet` is a planned future improvement for lower-RAM storage and is
+  not implemented yet.
 
-### 2. Vector math with `Vector`
+### 2. Distance math with views
 
-`Vector` is the abstract interface used by datasets and search APIs. It exposes:
+`FloatVectorView` is the borrowed descriptor used by datasets and search APIs.
+It exposes:
 
-- `getDataPointer()` for contiguous dense storage access
-- `getDimension()` for dimensionality
+- `data()` for contiguous dense storage access
+- `dimensions()` for dimensionality
 - bounds-checked indexing via `operator[]`
-- Euclidean distance with `Vector::distance(a, b)`
+- `squaredDistance(a, b)` for ranking and pruning
+- `euclideanDistance(a, b)` for user-visible distances
 
-`HDVector` is the built-in dense implementation backed by `std::vector<float>`
-and adds:
-
-- construction from a dimension count
-- construction from an existing `std::vector<float>`
+`HDVector` is backed by `std::vector<float>`. `ArmaVector` is backed by
+`arma::fvec`. Both expose `view()`.
 
 Example:
 
 ```cpp
 #include "HDVector.hpp"
+#include "vector_view.hpp"
 
 HDVector a(std::vector<float>{1.0f, 2.0f});
 HDVector b(std::vector<float>{4.0f, 6.0f});
 
-float d = Vector::distance(a, b);  // 5.0
+float d = euclideanDistance(a.view(), b.view());  // 5.0
 ```
 
 ### 3. Building and querying a Vamana index
@@ -305,13 +319,13 @@ Construct an index from a dataset:
 #include "dataset.hpp"
 #include "vamana.hpp"
 
-auto dataset = std::make_unique<InMemoryDataSet>("build/gvec.bin");
+auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
 HDVector query(std::vector<float>{1.0f, 2.0f, 3.0f});
 
 Vamana index(std::move(dataset), /*R=*/64, /*alpha=*/1.2f);
 index.setSearchListSize(100);
 
-SearchResults result = index.greedySearch(query, /*k=*/10);
+SearchResults result = index.greedySearch(query.view(), /*k=*/10);
 OptionalNodeId medoid = index.getMedoid();
 
 for (NodeId node : result.approximateNN) {
@@ -329,7 +343,7 @@ Important knobs:
 Important methods:
 
 - `buildIndex()`: rebuild the graph from a fresh deterministic seed
-- `greedySearch(query, k)`: search using an arbitrary `Vector`
+- `greedySearch(query, k)`: search using a `FloatVectorView`
 - `search(queryNode, k)`: search using an existing dataset node as the query
 - `save(path)`: persist the graph
 - `getMedoid()`, `getOutNeighbors(node)`, `getDegreeThreshold()`: inspect the built graph without reaching into internal fields
@@ -350,7 +364,7 @@ index.save("my-index.graph");
 Load a persisted graph without rebuilding:
 
 ```cpp
-auto dataset = std::make_unique<InMemoryDataSet>("build/gvec.bin");
+auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
 Vamana loaded(std::move(dataset), std::filesystem::path("my-index.graph"));
 ```
 
@@ -358,7 +372,7 @@ You can also supply an existing `Graph` directly:
 
 ```cpp
 Graph graph("my-index.graph");
-auto dataset = std::make_unique<InMemoryDataSet>("build/gvec.bin");
+auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
 Vamana loaded(std::move(dataset), graph);
 ```
 
@@ -371,7 +385,7 @@ the core ANN story. Treat it as an experimental helper:
 #include "batch_stochastic_kmeans.hpp"
 #include "dataset.hpp"
 
-InMemoryDataSet dataset("build/gvec.bin");
+FlatDataSet dataset("build/gvec.bin");
 std::vector<Cluster> clusters =
     clusterizeData(dataset, /*k=*/8, /*iterations=*/25);
 ```
@@ -389,7 +403,7 @@ cluster.
 
 ### Dataset format
 
-Both `FileDataSet` and `InMemoryDataSet` read the same binary layout:
+`FlatDataSet` reads this binary layout:
 
 ```text
 Header:
@@ -436,7 +450,7 @@ This implementation follows the broad structure of a Vamana-style navigable grap
 
 ### Distance metric
 
-All search and pruning decisions use Euclidean distance:
+User-visible distances use Euclidean distance:
 
 $$
 d(x, y) = \sqrt{\sum_{i=1}^{D}(x_i - y_i)^2}
@@ -447,7 +461,8 @@ where:
 - `D` is the embedding dimensionality
 - `x` and `y` are embedding vectors
 
-The implementation computes this in `Vector::distance`.
+Internally, ranking and pruning use squared distance to avoid repeated square
+roots where comparisons are equivalent.
 
 ### Graph construction
 

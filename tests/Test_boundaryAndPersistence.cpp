@@ -51,19 +51,15 @@ protected:
   }
 };
 
-using DataSetImplementations = ::testing::Types<FileDataSet, InMemoryDataSet>;
+using DataSetImplementations = ::testing::Types<FlatDataSet>;
 TYPED_TEST_SUITE(DataSetBoundaryTest, DataSetImplementations);
 
 TYPED_TEST(DataSetBoundaryTest, AllowsEmptyRangesAtDatasetBoundary) {
   auto dataSet = this->makeDataSet();
 
-  auto records = dataSet->getNRecordViewsFromIndex(this->fixture.rows.size(), 0);
-  ASSERT_NE(records, nullptr);
-  EXPECT_TRUE(records->empty());
-
-  auto vectors = dataSet->getNVectorsFromIndex(this->fixture.rows.size(), 0);
-  ASSERT_NE(vectors, nullptr);
-  EXPECT_TRUE(vectors->empty());
+  auto records = dataSet->getRecordViewsFromIndex(this->fixture.rows.size(), 0);
+  // vector return value is always materialized.
+  EXPECT_TRUE(records.empty());
 }
 
 TYPED_TEST(DataSetBoundaryTest, RejectsMissingDatasetPath) {
@@ -85,7 +81,7 @@ TEST(HDVectorBoundary, DistanceRejectsMismatchedDimensions) {
   HDVector left(std::vector<float>{1.0f, 2.0f});
   HDVector right(std::vector<float>{1.0f, 2.0f, 3.0f});
 
-  EXPECT_THROW((void)Vector::distance(left, right), std::invalid_argument);
+  EXPECT_THROW((void)euclideanDistance(left.view(), right.view()), std::invalid_argument);
 }
 
 TEST(GraphMutation, AddOutNeighbourUniqueSkipsDuplicatesAndClearRemovesEdges) {
