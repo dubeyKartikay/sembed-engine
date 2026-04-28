@@ -34,6 +34,8 @@ public:
   uint64_t getN() const { return m_n; }
   uint64_t getDimensions() const { return m_dimensions; }
   uint64_t getStoredDimensions() const { return m_storedDimensions; }
+  virtual void addVector(int64_t recordId, float* vector, uint64_t dimensions) = 0;
+  virtual float *data() = 0;
 };
 
 class FlatDataSet : public DataSet {
@@ -43,7 +45,9 @@ private:
 
 public:
   explicit FlatDataSet(fs::path path);
+  float *data() override { return m_matrix.memptr(); }
   RecordView getRecordViewByIndex(uint64_t index) const override;
+  void addVector(int64_t recordId, float* vector, uint64_t dimensions) override;
   std::vector<RecordView> getRecordViewsFromIndex(
       uint64_t index, uint64_t count) const override;
 };

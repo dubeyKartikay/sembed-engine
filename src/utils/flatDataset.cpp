@@ -78,3 +78,13 @@ std::vector<RecordView> FlatDataSet::getRecordViewsFromIndex(
   }
   return records;
 }
+
+void FlatDataSet::addVector(int64_t recordId, float* vector, uint64_t dimensions) {
+  if (dimensions != m_dimensions) {
+    throw std::invalid_argument("vector dimensions must match the dataset");
+  }
+
+  m_recordIds.push_back(recordId);
+  arma::Col<float> vectorCol(vector, dimensions, false, true);
+  m_matrix.insert_cols(m_matrix.n_cols,vectorCol);
+}
