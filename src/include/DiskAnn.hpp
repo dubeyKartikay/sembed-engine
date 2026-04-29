@@ -8,6 +8,7 @@ private:
   Vamana m_vamana;
 
 public:
-  void indexFromRaw(std::filesystem::path rawVectorBin,size_t k, size_t l);
+  static void indexFromRaw(std::filesystem::path rawVectorBin, size_t k,
+                           size_t l);
   NodeList search(NodeId queryNode, uint64_t k);
 };

@@ -126,6 +126,14 @@ add_executable(sembed_benchmark src/bench/main.cpp)
 target_include_directories(sembed_benchmark PUBLIC ${PROJECT_INCLUDE_DIR})
 target_link_libraries(sembed_benchmark PUBLIC benchmark_support CLI11::CLI11)
 
+add_executable(sembed_diskann_build_benchmark
+    src/bench/diskann_build_benchmark.cpp
+)
+target_include_directories(sembed_diskann_build_benchmark PUBLIC
+    ${PROJECT_INCLUDE_DIR}
+)
+target_link_libraries(sembed_diskann_build_benchmark PUBLIC utils)
+
 enable_testing()
 
 set(GLOVE_FIXTURE "${CMAKE_BINARY_DIR}/gvec.bin")

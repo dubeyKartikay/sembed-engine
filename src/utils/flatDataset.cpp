@@ -1,5 +1,6 @@
 #include "dataset.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
@@ -79,12 +80,42 @@ std::vector<RecordView> FlatDataSet::getRecordViewsFromIndex(
   return records;
 }
 
-void FlatDataSet::addVector(int64_t recordId, float* vector, uint64_t dimensions) {
+void FlatDataSet::addVector(int64_t recordId, const float* vector,
+                            uint64_t dimensions) {
   if (dimensions != m_dimensions) {
     throw std::invalid_argument("vector dimensions must match the dataset");
   }
 
+  arma::Col<float> vectorCol(vector, dimensions);
   m_recordIds.push_back(recordId);
-  arma::Col<float> vectorCol(vector, dimensions, false, true);
   m_matrix.insert_cols(m_matrix.n_cols,vectorCol);
+  m_n++;
+}
+
+FlatDataSet::FlatDataSet(uint64_t dimensions){
+  m_dimensions = dimensions;
+  m_n = 0;
+  m_storedDimensions = m_dimensions + 1;
+  m_matrix.zeros(m_dimensions, 0);
+}
+
+FlatDataSet::FlatDataSet(uint64_t dimensions, uint64_t capacity) {
+  m_dimensions = dimensions;
+  m_n = capacity;
+  m_storedDimensions = m_dimensions + 1;
+  m_recordIds.resize(static_cast<size_t>(capacity));
+  m_matrix.set_size(m_dimensions, capacity);
+}
+
+void FlatDataSet::setVectorByIndex(uint64_t index, int64_t recordId,
+                                   const float* vector, uint64_t dimensions) {
+  if (dimensions != m_dimensions) {
+    throw std::invalid_argument("vector dimensions must match the dataset");
+  }
+  if (index >= m_n) {
+    throw std::out_of_range("record index is outside dataset bounds");
+  }
+
+  m_recordIds[static_cast<size_t>(index)] = recordId;
+  std::copy(vector, vector + dimensions, m_matrix.colptr(index));
 }
