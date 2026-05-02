@@ -40,22 +40,22 @@ You need:
 - Python 3
 - Git, so the vendored submodules can be initialized
 - A CMake generator such as `Ninja` or `Unix Makefiles`
-- Armadillo C++ linear algebra library, if already available locally
+- BLAS and LAPACK libraries for Armadillo
 
-On Debian/Ubuntu, install Armadillo with:
+On Debian/Ubuntu, install BLAS and LAPACK with:
 
 ```sh
-sudo apt install libarmadillo-dev
+sudo apt install libblas-dev liblapack-dev
 ```
 
 On macOS with Homebrew:
 
 ```sh
-brew install armadillo
+brew install openblas lapack
 ```
 
-If Armadillo is not installed locally, CMake fetches the pinned upstream
-Armadillo source during configure.
+CMake fetches the pinned upstream source for project dependencies during
+configure.
 
 ## Build
 
@@ -92,9 +92,9 @@ The repository vendors third-party C++ dependencies under [`external`](external)
 - `CLI11` for the CLI binaries
 - `nlohmann/json` for benchmark and CLI JSON output
 
-Armadillo is resolved with CMake's `find_package(Armadillo)` when available, or
-fetched from the pinned upstream source otherwise. It is linked through the
-project libraries, so code under `src` can include `<armadillo>`.
+Armadillo, Boost headers, mlpack, ensmallen, and cereal are fetched from pinned
+upstream sources during configure. Armadillo and Boost are linked through the
+project libraries, so code under `src` can include their headers.
 
 ## Test
 

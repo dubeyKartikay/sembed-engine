@@ -10,6 +10,7 @@
 #include "node_types.hpp"
 #include "searchresults.hpp"
 #include "vector_view.hpp"
+#include <boost/dynamic_bitset.hpp>
 
 class Vamana {
 public:
@@ -17,6 +18,8 @@ public:
   SearchResults greedySearch(FloatVectorView query, uint64_t k);
   void insertIntoSet(const NodeList &from, NodeList &to,
                      FloatVectorView comparisonVector);
+  void insertIntoSet(const NodeList &from, SortedBoundedVector &to,
+                     FloatVectorView comparisonVector, boost::dynamic_bitset<> &visited);
   Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
          float distanceThreshold = 1.2f);
   Vamana(std::unique_ptr<DataSet> dataSet, Graph graph,

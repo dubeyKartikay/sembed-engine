@@ -1,10 +1,12 @@
 #include "vamana.hpp"
+#include "searchresults.hpp"
 #include "utils.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <unordered_set>
 #include <vector>
+#include <boost/dynamic_bitset.hpp>
 
 namespace {
 uint64_t checkedDatasetNodeCount(const std::unique_ptr<DataSet> &dataSet) {
@@ -85,53 +87,53 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
   m_searchListSize = 100;
 }
 
-void Vamana::insertIntoSet(const NodeList &from, NodeList &to,
-                           FloatVectorView comparisonVector) {
+void Vamana::insertIntoSet(const NodeList &from, SortedBoundedVector &to,
+                           FloatVectorView comparisonVector, boost::dynamic_bitset<> &visited) {
   if (from.empty()) {
     return;
   }
-  std::unordered_set<NodeId> existing(to.begin(), to.end());
-  for (const NodeId outNode : from) {
-    if (existing.insert(outNode).second) {
-      to.push_back(outNode);
+  std::vector<NodeId> toInsert;
+  std::vector<float> distances;
+  toInsert.reserve(from.size());
+  for (const NodeId &node : from) {
+    if (!visited.test((size_t)node)) {
+      toInsert.push_back(node);
+      distances.push_back(squaredDistance(comparisonVector,
+                                         m_dataSet->getRecordViewByIndex(node).values));
+      visited.set((size_t)node);
     }
   }
-  sortNodeListByDistance(*m_dataSet, to, comparisonVector);
+
+  for (size_t i = 0; i < toInsert.size(); i++) {
+    to.add({distances[i], toInsert[i]});
+  }
+
 }
 
 SearchResults Vamana::greedySearch(FloatVectorView query, uint64_t k) {
-  SearchResults searchResult;
+  SearchResults searchResult(m_searchListSize);
   const OptionalNodeId medoid = m_graph.getMedoid();
   if (!medoid || m_searchListSize == 0 || k == 0) {
     return searchResult;
   }
-  searchResult.approximateNN.push_back(*medoid);
-  std::unordered_set<NodeId> visited;
-  uint64_t maxIter = 0;
-  while (maxIter < 10000) {
-    uint64_t i = 0;
-    while (i < m_searchListSize && i < searchResult.approximateNN.size() &&
-           visited.count(searchResult.approximateNN[i]) != 0) {
-      ++i;
-    }
-    if (i >= m_searchListSize || i >= searchResult.approximateNN.size()) {
+  searchResult.approximateNN.add({
+    squaredDistance(query, m_dataSet->getRecordViewByIndex(*medoid).values),
+    *medoid
+  });
+  boost::dynamic_bitset<> visited(m_graph.getNodeCount());
+  while (1) {
+    auto nodePStarIndex = searchResult.approximateNN.closestUnexpanded();
+    if(nodePStarIndex >= m_searchListSize){
       break;
     }
-
-    const NodeId nodePStar = searchResult.approximateNN[i];
-    visited.insert(nodePStar);
-    searchResult.visited.push_back(nodePStar);
-    insertIntoSet(m_graph.getOutNeighbors(nodePStar),
-                  searchResult.approximateNN, query);
-    while (searchResult.approximateNN.size() > m_searchListSize) {
-      searchResult.approximateNN.pop_back();
-    }
-    maxIter++;
-  }
-  while (searchResult.approximateNN.size() > k) {
-    searchResult.approximateNN.pop_back();
+    auto nodePStar = searchResult.approximateNN[nodePStarIndex];
+    visited.set(nodePStar.node);
+    searchResult.visited.push_back(nodePStar.node);
+    insertIntoSet(m_graph.getOutNeighbors(nodePStar.node),
+                  searchResult.approximateNN, query,visited);
   }
 
+  searchResult.approximateNN.trim(k);
   return searchResult;
 }
 
@@ -187,7 +189,6 @@ void Vamana::prune(NodeId node, NodeList &candidateSet) {
 }
 
 void Vamana::buildIndex() {
-  m_graph = Graph(m_dataSet->getN(), m_graph.getDegreeThreshold());
   auto rng = makeDeterministicRng(
       0x76616d616e61524eULL,
       {m_dataSet->getN(), m_graph.getDegreeThreshold()},
@@ -200,6 +201,7 @@ void Vamana::buildIndex() {
     for (NodeId neighbour : m_graph.getOutNeighbors(node)) {
       try {
         m_graph.addOutNeighborUnique(neighbour, node);
+        //wtf
       } catch (const std::invalid_argument &) {
         prune(neighbour, m_graph.mutableOutNeighbors(neighbour));
         if (std::find(m_graph.getOutNeighbors(neighbour).begin(),
