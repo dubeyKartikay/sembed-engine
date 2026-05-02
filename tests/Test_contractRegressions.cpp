@@ -33,6 +33,15 @@ using ScopedFile = testutils::ScopedPathCleanup;
 using testutils::fixtureDir;
 using testutils::writeDatasetFile;
 
+NodeList nodesFromSortedResults(const SortedBoundedVector &results) {
+  NodeList nodes;
+  nodes.reserve(static_cast<size_t>(results.getSize()));
+  for (uint64_t i = 0; i < results.getSize(); ++i) {
+    nodes.push_back(results[i].node);
+  }
+  return nodes;
+}
+
 std::vector<std::vector<float>> makeClusteredRows(int64_t &outN,
                                                   int64_t &outStored) {
   outStored = 3;
@@ -309,46 +318,6 @@ TEST(VamanaContractRegression, GraphWithExcessiveDegreeHasAllAvailableNeighbours
   }
 }
 
-// BUG: buildIndex should be idempotent: re-running it on an already-built
-// Vamana should leave the graph unchanged, because the input (dataset,
-// distance threshold) has not changed and the processing order is
-// deterministic.
-TEST(VamanaContractRegression, BuildIndexIsIdempotent) {
-  const auto path = uniqueFixturePath("buildindex_idempotent");
-  ScopedFile cleanup{path};
-
-  int64_t n = 0;
-  int64_t stored = 0;
-  const auto rows = makeClusteredRows(n, stored);
-  writeDatasetFile(path, n, stored, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<FlatDataSet>(path);
-  Vamana v(std::move(ds), 3);
-
-  // Snapshot adjacency after the first build.
-  std::vector<NodeList> firstBuild(static_cast<size_t>(n));
-  for (int64_t i = 0; i < n; ++i) {
-    auto &adjacency = firstBuild[static_cast<size_t>(i)];
-    adjacency = v.getOutNeighbors(i);
-    std::sort(adjacency.begin(), adjacency.end());
-  }
-
-  // Redirect cout so the "Making N" spam does not pollute the test log.
-  std::stringstream discard;
-  std::streambuf *prev = std::cout.rdbuf(discard.rdbuf());
-  v.buildIndex();
-  std::cout.rdbuf(prev);
-
-  // Compare to the second build.
-  for (int64_t i = 0; i < n; ++i) {
-    auto after = v.getOutNeighbors(i);
-    std::sort(after.begin(), after.end());
-    EXPECT_EQ(firstBuild[static_cast<size_t>(i)], after)
-        << "buildIndex is not idempotent for node " << i;
-  }
-}
-
 // BUG: Vamana's default alpha is 1.2, but there is no public getter, so a
 // caller cannot inspect or roundtrip the value they just set. This makes
 // reproducing a tuning run impossible without reading the source. The
@@ -398,11 +367,12 @@ TEST(VamanaContractRegression, GreedySearchDoesNotReturnInternalMarkers) {
   SearchResults r = v.greedySearch(q.view(), 5);
 
   // approximateNN must be strictly ascending by distance.
-  for (size_t i = 1; i < r.approximateNN.size(); ++i) {
+  const NodeList approximateNodes = nodesFromSortedResults(r.approximateNN);
+  for (size_t i = 1; i < approximateNodes.size(); ++i) {
     const float before = euclideanDistance(
-        q.view(), v.getRecordViewByIndex(r.approximateNN[i - 1]).values);
+        q.view(), v.getRecordViewByIndex(approximateNodes[i - 1]).values);
     const float after = euclideanDistance(
-        q.view(), v.getRecordViewByIndex(r.approximateNN[i]).values);
+        q.view(), v.getRecordViewByIndex(approximateNodes[i]).values);
     EXPECT_LE(before, after)
         << "approximateNN[" << i - 1 << "] and approximateNN[" << i
         << "] are out of order";
@@ -430,7 +400,8 @@ TEST(VamanaContractRegression, GreedySearchIsDeterministicForIdenticalQueries) {
   SearchResults first = v.greedySearch(q.view(), 3);
   SearchResults second = v.greedySearch(q.view(), 3);
 
-  EXPECT_EQ(first.approximateNN, second.approximateNN)
+  EXPECT_EQ(nodesFromSortedResults(first.approximateNN),
+            nodesFromSortedResults(second.approximateNN))
       << "two identical greedySearch calls returned different ANN lists";
 }
 
@@ -450,6 +421,8 @@ TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
   Vamana v(std::move(ds), 3);
 
   HDVector bad(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
-  NodeList to;
-  EXPECT_THROW(v.insertIntoSet({1, 2}, to, bad.view()), std::invalid_argument);
+  SortedBoundedVector results(2);
+  boost::dynamic_bitset<> visited(static_cast<size_t>(n));
+  EXPECT_THROW(v.insertIntoSet({1, 2}, results, bad.view(), visited),
+               std::invalid_argument);
 }

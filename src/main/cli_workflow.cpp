@@ -70,6 +70,14 @@ Json recordResultJson(const RecordView &queryRecord,
                                           resultRecord.values)}};
 }
 
+Json visitedNodesJson(const std::vector<Neighbour> &visited) {
+  Json nodes = Json::array();
+  for (const Neighbour &neighbour : visited) {
+    nodes.push_back(neighbour.node);
+  }
+  return nodes;
+}
+
 }  // namespace
 
 std::string buildIndexWorkflow(const BuildIndexOptions &options) {
@@ -106,7 +114,8 @@ std::string queryIndexWorkflow(const QueryIndexOptions &options) {
       index.greedySearch(queryRecord.values, options.k);
 
   Json results = Json::array();
-  for (NodeId node : searchResults.approximateNN) {
+  for (uint64_t i = 0; i < searchResults.approximateNN.getSize(); ++i) {
+    const NodeId node = searchResults.approximateNN[i].node;
     const RecordView resultRecord = index.getRecordViewByIndex(node);
     results.push_back(recordResultJson(queryRecord, resultRecord, node));
   }
@@ -121,7 +130,7 @@ std::string queryIndexWorkflow(const QueryIndexOptions &options) {
         {"k", options.k},
         {"search_list_size", options.searchListSize}}},
       {"results", results},
-      {"visited_nodes", searchResults.visited}};
+      {"visited_nodes", visitedNodesJson(searchResults.visited)}};
   return output.dump(2);
 }
 

@@ -36,6 +36,24 @@ using ScopedFile = testutils::ScopedPathCleanup;
 using testutils::fixtureDir;
 using testutils::writeDatasetFile;
 
+NodeList nodesFromSortedResults(const SortedBoundedVector &results) {
+  NodeList nodes;
+  nodes.reserve(static_cast<size_t>(results.getSize()));
+  for (uint64_t i = 0; i < results.getSize(); ++i) {
+    nodes.push_back(results[i].node);
+  }
+  return nodes;
+}
+
+NodeList nodesFromNeighbours(const std::vector<Neighbour> &neighbours) {
+  NodeList nodes;
+  nodes.reserve(neighbours.size());
+  for (const Neighbour &neighbour : neighbours) {
+    nodes.push_back(neighbour.node);
+  }
+  return nodes;
+}
+
 std::vector<std::vector<float>> makeSmallClusteredRows(int64_t &outN,
                                                        int64_t &outStored) {
   outStored = 3;
@@ -313,11 +331,11 @@ TEST(VamanaRobustness, GreedySearchResultsAreWithinDatasetBounds) {
   HDVector q(std::vector<float>{12.5f, 7.5f});
   SearchResults r = v.greedySearch(q.view(), 5);
 
-  for (NodeId idx : r.approximateNN) {
+  for (NodeId idx : nodesFromSortedResults(r.approximateNN)) {
     EXPECT_GE(idx, 0);
     EXPECT_LT(static_cast<uint64_t>(idx), datasetSize);
   }
-  for (NodeId idx : r.visited) {
+  for (NodeId idx : nodesFromNeighbours(r.visited)) {
     EXPECT_GE(idx, 0);
     EXPECT_LT(static_cast<uint64_t>(idx), datasetSize);
   }
@@ -426,9 +444,11 @@ TEST(VamanaRobustness, InsertIntoSetInsertsEveryMissingElement) {
   Vamana v(std::move(ds), 2);
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
-  NodeList to;
-  v.insertIntoSet({2, 4}, to, q.view());
-  v.insertIntoSet({1, 3, 5}, to, q.view());
+  SortedBoundedVector results(rows.size());
+  boost::dynamic_bitset<> visited(rows.size());
+  v.insertIntoSet({2, 4}, results, q.view(), visited);
+  v.insertIntoSet({1, 3, 5}, results, q.view(), visited);
+  const NodeList to = nodesFromSortedResults(results);
 
   std::unordered_set<NodeId> unique(to.begin(), to.end());
   const std::unordered_set<NodeId> expected = {1, 2, 3, 4, 5};
@@ -456,8 +476,10 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
 
   HDVector q(std::vector<float>{0.0f, 0.0f});
 
-  NodeList to;
-  v.insertIntoSet({5, 3, 1, 4, 2, 0}, to, q.view());
+  SortedBoundedVector results(rows.size());
+  boost::dynamic_bitset<> visited(rows.size());
+  v.insertIntoSet({5, 3, 1, 4, 2, 0}, results, q.view(), visited);
+  const NodeList to = nodesFromSortedResults(results);
 
   for (size_t i = 1; i < to.size(); ++i) {
     const float before =
@@ -584,14 +606,14 @@ TEST(IntegrationRegression, RecallIsPerfectAtLEqualsNOnMediumDataset) {
             });
 
   SearchResults approx = v.greedySearch(q.view(), 5);
-  ASSERT_EQ(approx.approximateNN.size(), 5U);
+  ASSERT_EQ(approx.approximateNN.getSize(), 5U);
 
   NodeList expected;
   expected.reserve(5);
   for (uint64_t i = 0; i < 5; ++i) {
     expected.push_back(static_cast<NodeId>(ranked[i].second));
   }
-  EXPECT_EQ(approx.approximateNN, expected)
+  EXPECT_EQ(nodesFromSortedResults(approx.approximateNN), expected)
       << "with L == N the top-5 ANN should equal the brute-force top-5";
 }
 
@@ -619,8 +641,8 @@ TEST(IntegrationRegression, SelfRecallIsPerfectAtLEqualsN) {
     const std::vector<float> payload(rows[i].begin() + 1, rows[i].end());
     HDVector q(payload);
     SearchResults r = v.greedySearch(q.view(), 1);
-    if (r.approximateNN.size() != 1U ||
-        r.approximateNN.front() != static_cast<NodeId>(i)) {
+    if (r.approximateNN.getSize() != 1U ||
+        r.approximateNN[0].node != static_cast<NodeId>(i)) {
       ++misses;
     }
   }

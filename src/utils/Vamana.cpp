@@ -183,7 +183,7 @@ void Vamana::buildIndex() {
         candidates.emplace_back(
             squaredDistance(neighbourView,
                             m_dataSet->getRecordViewByIndex(n).values),
-            neighbour);
+            n);
       }
       prune(neighbour, candidates);
       if (std::find(m_graph.getOutNeighbors(neighbour).begin(),

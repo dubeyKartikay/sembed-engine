@@ -35,6 +35,33 @@ using testutils::fixtureDir;
 using testutils::writeDatasetFile;
 using testutils::writeGraphFile;
 
+NodeList nodesFromSortedResults(const SortedBoundedVector &results) {
+  NodeList nodes;
+  nodes.reserve(static_cast<size_t>(results.getSize()));
+  for (uint64_t i = 0; i < results.getSize(); ++i) {
+    nodes.push_back(results[i].node);
+  }
+  return nodes;
+}
+
+NodeList nodesFromNeighbours(const std::vector<Neighbour> &neighbours) {
+  NodeList nodes;
+  nodes.reserve(neighbours.size());
+  for (const Neighbour &neighbour : neighbours) {
+    nodes.push_back(neighbour.node);
+  }
+  return nodes;
+}
+
+std::vector<Neighbour> neighboursFromNodes(const NodeList &nodes) {
+  std::vector<Neighbour> neighbours;
+  neighbours.reserve(nodes.size());
+  for (NodeId node : nodes) {
+    neighbours.emplace_back(0.0f, node);
+  }
+  return neighbours;
+}
+
 std::vector<std::vector<float>> makeClusteredRows(int64_t &outN,
                                                   int64_t &outStoredDim) {
   outStoredDim = 3;
@@ -422,7 +449,7 @@ TEST(VamanaRegression, GreedySearchWithSmallSearchListStillTerminatesAndReturnsN
   // With L == 1 the main loop may never advance, which would indicate a
   // bug: the algorithm should still return a best-effort candidate.
   SearchResults result = v.greedySearch(query.view(), 1);
-  EXPECT_EQ(result.approximateNN.size(), 1U);
+  EXPECT_EQ(result.approximateNN.getSize(), 1U);
 }
 
 TEST(VamanaRegression, GreedySearchIsDeterministicAcrossRepeatedCalls) {
@@ -443,9 +470,10 @@ TEST(VamanaRegression, GreedySearchIsDeterministicAcrossRepeatedCalls) {
   SearchResults first = v.greedySearch(query.view(), 3);
   SearchResults second = v.greedySearch(query.view(), 3);
 
-  EXPECT_EQ(first.approximateNN, second.approximateNN)
+  EXPECT_EQ(nodesFromSortedResults(first.approximateNN),
+            nodesFromSortedResults(second.approximateNN))
       << "greedySearch returned different results for identical inputs";
-  EXPECT_EQ(first.visited, second.visited)
+  EXPECT_EQ(nodesFromNeighbours(first.visited), nodesFromNeighbours(second.visited))
       << "greedySearch visited ordering changed between identical calls";
 }
 
@@ -510,12 +538,13 @@ TEST(VamanaRegression, SearchReturnsKnownNearestNodesOnDeterministicGraph) {
   Vamana v(std::move(ds), graph_path);
   v.setSearchListSize(5);
 
-  const std::unique_ptr<NodeList> actual = v.search(/*queryNode=*/3, /*k=*/3);
+  const SearchResults searchResult =
+      v.greedySearch(v.getRecordViewByIndex(/*queryNode=*/3).values, /*k=*/3);
+  const NodeList actual = nodesFromSortedResults(searchResult.approximateNN);
 
-  ASSERT_NE(actual, nullptr);
-  EXPECT_EQ(*actual, NodeList({3, 2, 4}))
+  EXPECT_EQ(actual, NodeList({3, 2, 4}))
       << "search(queryNode, k) did not return the expected nearest nodes "
-         "for a deterministic graph and dataset";
+          "for a deterministic graph and dataset";
 }
 
 TEST(VamanaRegression, GreedySearchDoesNotReturnDuplicateNodes) {
@@ -539,12 +568,15 @@ TEST(VamanaRegression, GreedySearchDoesNotReturnDuplicateNodes) {
   HDVector query(std::vector<float>{1.0f, 2.0f});
   SearchResults r = v.greedySearch(query.view(), 5);
 
-  std::unordered_set<NodeId> unique(r.approximateNN.begin(),
-                                 r.approximateNN.end());
-  EXPECT_EQ(unique.size(), r.approximateNN.size())
+  const NodeList approximateNodes = nodesFromSortedResults(r.approximateNN);
+  std::unordered_set<NodeId> unique(approximateNodes.begin(),
+                                    approximateNodes.end());
+  EXPECT_EQ(unique.size(), r.approximateNN.getSize())
       << "greedySearch returned duplicate indices in its ANN list";
 
-  std::unordered_set<NodeId> visitedUnique(r.visited.begin(), r.visited.end());
+  const NodeList visitedNodes = nodesFromNeighbours(r.visited);
+  std::unordered_set<NodeId> visitedUnique(visitedNodes.begin(),
+                                           visitedNodes.end());
   EXPECT_EQ(visitedUnique.size(), r.visited.size())
       << "visited set contained duplicate nodes";
 }
@@ -610,7 +642,11 @@ TEST(VamanaRegression, InsertIntoSetDoesNotDuplicateExistingMembers) {
             });
 
   // Reinsert the same values.  The resulting set must not grow.
-  v.insertIntoSet({1, 2, 3}, working, q.view());
+  SortedBoundedVector results(rows.size());
+  boost::dynamic_bitset<> visited(rows.size());
+  v.insertIntoSet(working, results, q.view(), visited);
+  v.insertIntoSet({1, 2, 3}, results, q.view(), visited);
+  working = nodesFromSortedResults(results);
   EXPECT_EQ(working.size(), 3U)
       << "insertIntoSet duplicated already-present elements";
 
@@ -665,8 +701,8 @@ TEST(VamanaRegression, GreedySearchRecoversExactTopKOnTinyWellSeparatedClusters)
                              static_cast<NodeId>(scored[1].second),
                              static_cast<NodeId>(scored[2].second)};
 
-  ASSERT_EQ(approx.approximateNN.size(), 3U);
-  EXPECT_EQ(approx.approximateNN, expected)
+  ASSERT_EQ(approx.approximateNN.getSize(), 3U);
+  EXPECT_EQ(nodesFromSortedResults(approx.approximateNN), expected)
       << "ANN result deviates from brute-force top-3 on well-separated "
          "clusters";
 }
@@ -926,17 +962,18 @@ TEST(VamanaRegression, GreedySearchOnDegenerateAllEqualDatasetPicksAnyRecord) {
 
   HDVector q(std::vector<float>{0.0f, 0.0f});
   SearchResults r = v.greedySearch(q.view(), 3);
-  ASSERT_EQ(r.approximateNN.size(), 3U);
+  ASSERT_EQ(r.approximateNN.getSize(), 3U);
 
   // Each returned neighbour must correspond to a zero-distance record.
-  for (int64_t idx : r.approximateNN) {
+  const NodeList approximateNodes = nodesFromSortedResults(r.approximateNN);
+  for (int64_t idx : approximateNodes) {
     auto rec = v.getRecordViewByIndex(idx);
     EXPECT_FLOAT_EQ(euclideanDistance(q.view(), rec.values), 0.0f);
   }
 
   // And the three returned indices must be distinct.
-  std::unordered_set<NodeId> unique(r.approximateNN.begin(),
-                                 r.approximateNN.end());
+  std::unordered_set<NodeId> unique(approximateNodes.begin(),
+                                    approximateNodes.end());
   EXPECT_EQ(unique.size(), 3U)
       << "greedySearch returned duplicates on an all-zero dataset";
 }
@@ -960,7 +997,7 @@ TEST(VamanaRegression, GreedySearchHonoursKLargerThanDatasetByReturningAll) {
   HDVector q(std::vector<float>{1.5f, 1.5f});
   // Asking for k > N should return every record, not throw.
   SearchResults r = v.greedySearch(q.view(), 100);
-  EXPECT_EQ(r.approximateNN.size(), rows.size())
+  EXPECT_EQ(r.approximateNN.getSize(), rows.size())
       << "requesting k > N should return all records, not truncate";
 }
 
@@ -984,13 +1021,13 @@ TEST(VamanaRegression, VisitedRecordReflectsActualTraversal) {
   SearchResults r = v.greedySearch(q.view(), 3);
 
   // The reported visited list must only reference legal record indices.
-  for (NodeId idx : r.visited) {
+  for (NodeId idx : nodesFromNeighbours(r.visited)) {
     EXPECT_LT(idx, rows.size());
   }
   // The medoid is always visited first.
   ASSERT_FALSE(r.visited.empty());
   ASSERT_TRUE(v.getMedoid().has_value());
-  EXPECT_EQ(r.visited.front(), v.getMedoid().value())
+  EXPECT_EQ(r.visited.front().node, v.getMedoid().value())
       << "visited list does not start from the medoid";
 }
 
@@ -1288,7 +1325,8 @@ TEST(VamanaRegression, PrunePreservesAdjacencyBoundedByDegree) {
   Vamana v(std::move(ds), 2);
 
   // Manually inflate candidate set for node 0 and prune.
-  NodeList candidates = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  const std::vector<Neighbour> candidates =
+      neighboursFromNodes({1, 2, 3, 4, 5, 6, 7, 8, 9});
   v.prune(0, candidates);
 
   const auto &nb = v.getOutNeighbors(0);
@@ -1318,10 +1356,11 @@ TEST(VamanaRegression, PrunePreservesCandidateSetExceptForSelf) {
   auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
-  NodeList candidates = {0, 1, 2, 3, 4, 5};
+  const std::vector<Neighbour> candidates = neighboursFromNodes({0, 1, 2, 3, 4, 5});
   v.prune(3, candidates);
-  EXPECT_EQ(std::count(candidates.begin(), candidates.end(), 3), 0)
-      << "prune left the source node inside the returned candidate set";
+  const NodeList neighbours = v.getOutNeighbors(3);
+  EXPECT_EQ(std::count(neighbours.begin(), neighbours.end(), 3), 0)
+      << "prune left the source node inside the output neighbour set";
 }
 
 TEST(VamanaRegression, SaveSearchResultOrderingIsStable) {
@@ -1348,7 +1387,8 @@ TEST(VamanaRegression, SaveSearchResultOrderingIsStable) {
   SearchResults r1 = v.greedySearch(q1.view(), 4);
   SearchResults r2 = v.greedySearch(q2.view(), 4);
 
-  EXPECT_EQ(r1.approximateNN, r2.approximateNN);
+  EXPECT_EQ(nodesFromSortedResults(r1.approximateNN),
+            nodesFromSortedResults(r2.approximateNN));
 }
 
 TEST(VamanaRegression, GreedySearchVisitedListContainsNoDuplicates) {
@@ -1371,7 +1411,8 @@ TEST(VamanaRegression, GreedySearchVisitedListContainsNoDuplicates) {
   HDVector q(std::vector<float>{5.0f, 15.0f});
   SearchResults r = v.greedySearch(q.view(), 3);
 
-  std::unordered_set<NodeId> seen(r.visited.begin(), r.visited.end());
+  const NodeList visitedNodes = nodesFromNeighbours(r.visited);
+  std::unordered_set<NodeId> seen(visitedNodes.begin(), visitedNodes.end());
   EXPECT_EQ(seen.size(), r.visited.size());
 }
 
@@ -1394,10 +1435,10 @@ TEST(VamanaRegression, ApproxNNIsSortedByDistanceAtEndOfSearch) {
 
   HDVector q(std::vector<float>{1.05f, 2.1f});
   SearchResults r = v.greedySearch(q.view(), 10);
-  ASSERT_EQ(r.approximateNN.size(), 10U);
+  ASSERT_EQ(r.approximateNN.getSize(), 10U);
 
   float prev = -1.0f;
-  for (NodeId idx : r.approximateNN) {
+  for (NodeId idx : nodesFromSortedResults(r.approximateNN)) {
     auto rec = v.getRecordViewByIndex(idx);
     const float d = euclideanDistance(q.view(), rec.values);
     EXPECT_GE(d, prev)
@@ -1515,10 +1556,10 @@ TEST(VamanaRegression, GreedySearchFromRemoteQueryReturnsBestEffortCandidate) {
 
   HDVector far_query(std::vector<float>{1000.0f, 1000.0f});
   SearchResults r = v.greedySearch(far_query.view(), 1);
-  ASSERT_EQ(r.approximateNN.size(), 1U);
+  ASSERT_EQ(r.approximateNN.getSize(), 1U);
 
   // The largest indexed point is (15, 15), so that's the exact match.
-  auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
+  auto rec = v.getRecordViewByIndex(r.approximateNN[0].node);
   ASSERT_EQ(rec.values.dimensions(), 2);
   EXPECT_FLOAT_EQ(rec.values[0], 15.0f);
   EXPECT_FLOAT_EQ(rec.values[1], 15.0f);
@@ -1540,8 +1581,10 @@ TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
   Vamana v(std::move(ds), 3);
 
   HDVector q(std::vector<float>{3.0f, -3.0f});
-  NodeList working;
-  v.insertIntoSet({0, 1, 2, 3, 4, 5, 6, 7}, working, q.view());
+  SortedBoundedVector results(rows.size());
+  boost::dynamic_bitset<> visited(rows.size());
+  v.insertIntoSet({0, 1, 2, 3, 4, 5, 6, 7}, results, q.view(), visited);
+  const NodeList working = nodesFromSortedResults(results);
 
   ASSERT_EQ(working.size(), 8U);
   std::unordered_set<NodeId> unique(working.begin(), working.end());
@@ -1686,7 +1729,7 @@ TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset)
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
   SearchResults r = v.greedySearch(q.view(), 1);
-  ASSERT_FALSE(r.approximateNN.empty())
+  ASSERT_NE(r.approximateNN.getSize(), 0U)
       << "greedySearch returned no candidates for a small dataset with "
          "L == 1, k == 1";
 }
@@ -2069,10 +2112,13 @@ TEST(VamanaRegression, InsertIntoSetWithEmptySourceLeavesTargetUnchanged) {
   auto ds = std::make_unique<FlatDataSet>(path);
   Vamana v(std::move(ds), 2);
 
-  NodeList target = {0, 1, 2};
   HDVector q(std::vector<float>{1.0f, 1.0f});
-  v.insertIntoSet({}, target, q.view());
-  EXPECT_EQ(target, NodeList({0, 1, 2}))
+  SortedBoundedVector results(rows.size());
+  boost::dynamic_bitset<> visited(rows.size());
+  v.insertIntoSet({0, 1, 2}, results, q.view(), visited);
+  const NodeList before = nodesFromSortedResults(results);
+  v.insertIntoSet({}, results, q.view(), visited);
+  EXPECT_EQ(nodesFromSortedResults(results), before)
       << "insertIntoSet with an empty source mutated the target set";
 }
 
@@ -2120,8 +2166,8 @@ TEST(VamanaRegression, GreedySearchRecoversExactQueryMatchFromIndex) {
   HDVector q(std::vector<float>{5.0f * 3.14f, 5.0f * -1.41f});
   SearchResults r = v.greedySearch(q.view(), 1);
 
-  ASSERT_EQ(r.approximateNN.size(), 1U);
-  auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
+  ASSERT_EQ(r.approximateNN.getSize(), 1U);
+  auto rec = v.getRecordViewByIndex(r.approximateNN[0].node);
   EXPECT_FLOAT_EQ(euclideanDistance(q.view(), rec.values), 0.0f)
       << "exact query payload didn't recover its own record";
 }
@@ -2232,7 +2278,7 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
 
   HDVector q(std::vector<float>{7.2f, 7.2f});
   SearchResults r = v.greedySearch(q.view(), 3);
-  ASSERT_FALSE(r.approximateNN.empty());
+  ASSERT_NE(r.approximateNN.getSize(), 0U);
 
   // Brute force the true nearest.
   int64_t truth = -1;
@@ -2245,8 +2291,9 @@ TEST(VamanaRegression, GreedySearchSurfacesTheClosestDatasetPoint) {
       truth = i;
     }
   }
-  EXPECT_NE(std::find(r.approximateNN.begin(), r.approximateNN.end(), truth),
-            r.approximateNN.end())
+  const NodeList approximateNodes = nodesFromSortedResults(r.approximateNN);
+  EXPECT_NE(std::find(approximateNodes.begin(), approximateNodes.end(), truth),
+            approximateNodes.end())
       << "greedySearch omitted the exact nearest neighbour (index "
       << truth << ") from its top-3";
 }
@@ -2322,8 +2369,8 @@ TEST(VamanaRegression, GreedySearchReturnsSinglePointForOnePointDataset) {
 
   HDVector q(std::vector<float>{7.0f, 8.0f});
   SearchResults r = v.greedySearch(q.view(), 1);
-  ASSERT_EQ(r.approximateNN.size(), 1U);
-  EXPECT_EQ(r.approximateNN[0], 0);
+  ASSERT_EQ(r.approximateNN.getSize(), 1U);
+  EXPECT_EQ(r.approximateNN[0].node, 0);
 }
 
 // =========================================================================
@@ -2349,8 +2396,10 @@ TEST(VamanaRegression, InsertIntoSetInsertsAtSortedPosition) {
   HDVector q(std::vector<float>{2.0f, 2.0f});
   // Seed `working` with a proper distance-sorted sequence, then insert
   // a new element.  The result must remain sorted.
-  NodeList working;
-  v.insertIntoSet({0, 1, 2, 3, 4}, working, q.view());
+  SortedBoundedVector results(5);
+  boost::dynamic_bitset<> visited(rows.size());
+  v.insertIntoSet({0, 1, 2, 3, 4}, results, q.view(), visited);
+  const NodeList working = nodesFromSortedResults(results);
   ASSERT_EQ(working.size(), 5U);
 
   float prev_d = -1.0f;

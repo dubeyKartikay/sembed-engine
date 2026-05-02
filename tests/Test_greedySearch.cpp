@@ -14,6 +14,15 @@
 
 namespace {
 
+NodeList nodesFromSortedResults(const SortedBoundedVector &results) {
+  NodeList nodes;
+  nodes.reserve(static_cast<size_t>(results.getSize()));
+  for (uint64_t i = 0; i < results.getSize(); ++i) {
+    nodes.push_back(results[i].node);
+  }
+  return nodes;
+}
+
 struct AnnFixtureData {
   int64_t n = 6;
   int64_t dimensions = 3;
@@ -211,8 +220,8 @@ TYPED_TEST(DeterministicANNTest, SelfQueriesReturnExactRecord) {
     HDVector query(queryValues);
     SearchResults results = vamana.greedySearch(query.view(), 1);
 
-    ASSERT_EQ(results.approximateNN.size(), 1U);
-    EXPECT_EQ(results.approximateNN.front(), row_index);
+    ASSERT_EQ(results.approximateNN.getSize(), 1U);
+    EXPECT_EQ(results.approximateNN[0].node, row_index);
   }
 }
 
@@ -226,11 +235,11 @@ TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) 
   HDVector query(queryValues);
   SearchResults results = vamana.greedySearch(query.view(), 3);
 
-  ASSERT_EQ(results.approximateNN.size(), 3U);
+  ASSERT_EQ(results.approximateNN.getSize(), 3U);
 
   std::unordered_set<NodeId> unique;
   float previousDistance = -1.0f;
-  for (NodeId candidate : results.approximateNN) {
+  for (NodeId candidate : nodesFromSortedResults(results.approximateNN)) {
     unique.insert(candidate);
 
     const auto record = vamana.getRecordViewByIndex(candidate);
@@ -242,7 +251,7 @@ TYPED_TEST(DeterministicANNTest, GreedySearchReturnsCandidatesSortedByDistance) 
     EXPECT_GE(currentDistance, previousDistance);
     previousDistance = currentDistance;
   }
-  EXPECT_EQ(unique.size(), results.approximateNN.size());
+  EXPECT_EQ(unique.size(), results.approximateNN.getSize());
 }
 
 TYPED_TEST(DeterministicANNTest,
@@ -257,9 +266,9 @@ TYPED_TEST(DeterministicANNTest,
   SearchResults results = vamana.greedySearch(query.view(), 1);
   const NodeList exact = exactNearestIds(this->fixture, queryValues, 1);
 
-  ASSERT_EQ(results.approximateNN.size(), 1U);
+  ASSERT_EQ(results.approximateNN.getSize(), 1U);
   ASSERT_EQ(exact.size(), 1U);
-  EXPECT_EQ(results.approximateNN.front(), exact.front());
+  EXPECT_EQ(results.approximateNN[0].node, exact.front());
 }
 
 TYPED_TEST(LargeDeterministicANNTest, BuildIndexKeepsBoundedUniqueNeighbours) {
@@ -295,8 +304,8 @@ TYPED_TEST(LargeDeterministicANNTest, SelfQueriesReturnExactRecordAcrossGraph) {
     HDVector query(queryValues);
     SearchResults results = vamana.greedySearch(query.view(), 1);
 
-    ASSERT_EQ(results.approximateNN.size(), 1U);
-    EXPECT_EQ(results.approximateNN.front(), row_index);
+    ASSERT_EQ(results.approximateNN.getSize(), 1U);
+    EXPECT_EQ(results.approximateNN[0].node, row_index);
   }
 }
 
@@ -312,9 +321,9 @@ TYPED_TEST(LargeDeterministicANNTest,
   SearchResults results = vamana.greedySearch(query.view(), 5);
   const NodeList exact = exactNearestIds(this->fixture, queryValues, 5);
 
-  ASSERT_EQ(results.approximateNN.size(), 5U);
+  ASSERT_EQ(results.approximateNN.getSize(), 5U);
   ASSERT_EQ(exact.size(), 5U);
-  EXPECT_EQ(results.approximateNN, exact);
+  EXPECT_EQ(nodesFromSortedResults(results.approximateNN), exact);
 }
 
 } // namespace
