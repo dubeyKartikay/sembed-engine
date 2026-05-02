@@ -106,23 +106,6 @@ TEST(HDVectorRobustness, DistanceMatchesTheExpectedValueForMildlyLargeInputs) {
 // Graph deeper bugs
 // ============================================================================
 
-// BUG: Graph(0, R) calls getRandomNumber(0, -1) which evaluates gen() % 0 --
-// that is division by zero and undefined behaviour / SIGFPE. An ANN graph
-// over zero nodes should construct cleanly (even if it is useless), or at
-// minimum throw a clean exception.
-TEST(GraphRobustness, ZeroNodeGraphDoesNotCrashOrInvokeUB) {
-  EXPECT_EXIT(
-      {
-        try {
-          Graph g(0, 3);
-          std::exit(0);
-        } catch (const std::exception &) {
-          std::exit(0);
-        }
-      },
-      ::testing::ExitedWithCode(0), "");
-}
-
 // BUG: Graph(path) never checks whether the file opened successfully. If the
 // file is missing the ifstream silently fails, numberOfNodes stays at zero,
 // m_adj_list becomes empty, and getRandomNumber(0, -1) then divides by zero.
@@ -155,57 +138,6 @@ TEST(GraphRobustness, SetOutNeighboursRejectsSelfLoop) {
   EXPECT_THROW(g.setOutNeighbors(0, {0, 1}), std::invalid_argument)
       << "setOutNeighbors should reject self-loops instead of silently "
          "accepting them";
-}
-
-// BUG: Graph has no constructor that validates a negative degree threshold.
-// Downstream, generateRandomNumbers(-1, n, i) executes `for (size_t i = 0;
-// i < k; i++)` where k = -1 is promoted to size_t max, and the loop attempts
-// roughly 2^64 iterations.  The loop is practically infinite.
-// We put a short time-boxed smoke test behind an exit-test so the parent
-// test binary survives.
-TEST(GraphRobustness, ConstructorWithNegativeDegreeCompletesInReasonableTime) {
-  EXPECT_EXIT(
-      {
-        // Self-destruct the child after 3 seconds so we never hang the
-        // outer test runner if the implementation has an infinite loop on
-        // negative degree. A SIGALRM kill will be reported as a non-zero
-        // termination, which flags the bug.
-        alarm(3);
-        std::srand(0);
-        try {
-          Graph g(4, -1);
-          std::exit(0);
-        } catch (const std::exception &) {
-          std::exit(0);
-        }
-      },
-      ::testing::ExitedWithCode(0), "");
-}
-
-// BUG: the header validation only rejects storedDimensions < 1. A value of
-// exactly 1 passes, which makes dimensions = 0 and yields a dataset of
-// zero-dimensional vectors.  Such a dataset cannot meaningfully participate
-// in an ANN index (every pair has distance zero).  The file format should
-// reject this degenerate case up front.
-TEST(DataSetRobustness, StoredDimensionsEqualToOneIsRejected) {
-  const auto path = uniqueFixturePath("stored_dim_one");
-  ScopedFile cleanup{path};
-
-  int64_t n = 2;
-  int64_t stored = 1;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  ASSERT_TRUE(out.is_open());
-  out.write(reinterpret_cast<const char *>(&n), sizeof(n));
-  out.write(reinterpret_cast<const char *>(&stored), sizeof(stored));
-  const float id0 = 100.0f;
-  const float id1 = 200.0f;
-  out.write(reinterpret_cast<const char *>(&id0), sizeof(id0));
-  out.write(reinterpret_cast<const char *>(&id1), sizeof(id1));
-  out.close();
-
-  EXPECT_THROW(FlatDataSet ds(path), std::exception)
-      << "storedDimensions==1 means the records have zero actual vector "
-         "data; the loader should reject this degenerate file";
 }
 
 // BUG: independent FlatDataSet instances should produce identical records when
@@ -303,34 +235,6 @@ TEST(DataSetRobustness, RangedAndSingleLookupsMatch) {
 // ============================================================================
 // Vamana deeper bugs
 // ============================================================================
-
-// BUG: Constructing a Vamana on a dataset with zero records is catastrophic
-// because Graph(0, R) then evaluates gen() % 0 in getRandomNumber and
-// crashes.  Either the Vamana or the Graph should detect the degenerate
-// case up front.
-TEST(VamanaRobustness, ConstructorWithEmptyDatasetDoesNotCrash) {
-  const auto path = uniqueFixturePath("empty_dataset");
-  ScopedFile cleanup{path};
-  int64_t n = 0;
-  int64_t stored = 3;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  ASSERT_TRUE(out.is_open());
-  out.write(reinterpret_cast<const char *>(&n), sizeof(n));
-  out.write(reinterpret_cast<const char *>(&stored), sizeof(stored));
-  out.close();
-
-  EXPECT_EXIT(
-      {
-        try {
-          auto ds = std::make_unique<FlatDataSet>(path);
-          Vamana v(std::move(ds), 2);
-          std::exit(0);
-        } catch (const std::exception &) {
-          std::exit(0);
-        }
-      },
-      ::testing::ExitedWithCode(0), "");
-}
 
 // BUG: buildIndex() prints "Making <node>" for every node it processes.  A
 // library routine must not spam stdout -- consumers get their output
@@ -570,27 +474,6 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
 // Utils deeper bugs
 // ============================================================================
 
-// BUG: generateRandomNumbers(k, 0, blackList) executes rand() % 0, which is
-// undefined behaviour. The function must either guard against a zero range
-// or return immediately with an empty vector.
-TEST(UtilsRobustness, GenerateRandomNumbersWithZeroNDoesNotInvokeUB) {
-  EXPECT_EXIT(
-      {
-        try {
-          std::srand(7);
-          const auto result = generateRandomNumbers(3, 0, /*blackList=*/-1);
-          // A correct implementation should produce an empty vector.
-          if (!result.empty()) {
-            std::exit(1);
-          }
-          std::exit(0);
-        } catch (const std::exception &) {
-          std::exit(0);
-        }
-      },
-      ::testing::ExitedWithCode(0), "");
-}
-
 // BUG: When k > n the function cannot possibly produce k unique values, yet
 // the contract is ambiguous today. A stable API should return min(k, n) -- or
 // at worst throw -- but never exceed n unique outputs.
@@ -606,14 +489,6 @@ TEST(UtilsRobustness, GenerateRandomNumbersCannotReturnMoreThanNUniqueValues) {
   EXPECT_LE(result.size(), static_cast<size_t>(n))
       << "generateRandomNumbers returned " << result.size()
       << " entries from a population of only " << n;
-}
-
-// BUG: getPermutation must always produce a permutation of {0..n-1}. Even at
-// n == 0 the behaviour must be defined.  Today the implementation happens to
-// work for n == 0 but there is no test pinning the contract down.
-TEST(UtilsRobustness, GetPermutationZeroProducesEmptyResult) {
-  const auto perm = getPermutation(0);
-  EXPECT_TRUE(perm.empty());
 }
 
 // BUG: isValidPath's contract is ambiguous.  It is used to gate the

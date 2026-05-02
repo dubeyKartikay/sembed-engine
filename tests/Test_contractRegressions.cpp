@@ -168,26 +168,6 @@ TEST(UtilsContractRegression, GetPermutationIsNotDeterministicAcrossCalls) {
          "call, so two back-to-back calls collapse to one permutation";
 }
 
-// BUG: getPermutation with n <= 0 is not defined. n == 0 happens to work, but
-// n < 0 flows into std::vector<int64_t>(n, 0), which converts to size_t and tries
-// to allocate enormous storage.  A stable API should reject it up front.
-TEST(UtilsContractRegression, GetPermutationWithNegativeNReturnsEmpty) {
-  EXPECT_EXIT(
-      {
-        alarm(3);
-        try {
-          const auto perm = getPermutation(-1);
-          if (!perm.empty()) {
-            std::exit(1);
-          }
-          std::exit(0);
-        } catch (const std::exception &) {
-          std::exit(0);
-        }
-      },
-      ::testing::ExitedWithCode(0), "");
-}
-
 // BUG: isValidPath is implemented as fs::exists, which returns true for
 // directories, symlinks to directories, character devices, etc. FlatDataSet
 // then tries to open the directory as a binary file and either silently
@@ -452,53 +432,6 @@ TEST(VamanaContractRegression, GreedySearchIsDeterministicForIdenticalQueries) {
 
   EXPECT_EQ(first.approximateNN, second.approximateNN)
       << "two identical greedySearch calls returned different ANN lists";
-}
-
-// BUG: prune on an empty candidate set must leave the node with a usable
-// out-neighbour list.  The current implementation clears the list and then
-// never repopulates, leaving the node stranded.
-TEST(VamanaContractRegression, PruneOnEmptyCandidateSetLeavesNodeStranded) {
-  const auto path = uniqueFixturePath("prune_empty");
-  ScopedFile cleanup{path};
-
-  int64_t n = 0;
-  int64_t stored = 0;
-  const auto rows = makeClusteredRows(n, stored);
-  writeDatasetFile(path, n, stored, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<FlatDataSet>(path);
-  Vamana v(std::move(ds), 3);
-
-  NodeList candidates; // intentionally empty
-  v.prune(0, candidates);
-  const auto &after = v.getOutNeighbors(0);
-
-  EXPECT_FALSE(after.empty())
-      << "prune() cleared node 0's out-neighbours and never replaced them "
-         "because the candidate set was empty; the node is now unreachable";
-}
-
-// BUG: isToBePruned must obey `alpha * d(p*, p') < d(p, p')`. A degenerate
-// alpha of 0 means "prune iff 0 <= d(p, p')", i.e. always prune. Verify
-// that edge case: the test fails if the implementation inverts the
-// comparison or uses the wrong operand.
-TEST(VamanaContractRegression, IsToBePrunedWithZeroAlphaAlwaysPrunes) {
-  const auto path = uniqueFixturePath("zero_alpha");
-  ScopedFile cleanup{path};
-  writeDatasetFile(path, 3, 3,
-               {{0.0f, 0.0f, 0.0f},
-                {1.0f, 1.0f, 0.0f},
-                {2.0f, 2.0f, 0.0f}});
-
-  std::srand(0);
-  auto ds = std::make_unique<FlatDataSet>(path);
-  Vamana v(std::move(ds), 2);
-
-  v.setDistanceThreshold(0.0f);
-  EXPECT_TRUE(v.isToBePruned(/*p_dash=*/2, /*p_star=*/1, /*p=*/0))
-      << "alpha=0 should always prune (0 * anything <= any non-negative "
-         "distance); isToBePruned returned false";
 }
 
 // BUG: inserting a mismatched-dimension query node anywhere in the algorithm

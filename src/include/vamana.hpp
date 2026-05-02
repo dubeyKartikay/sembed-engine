@@ -14,7 +14,7 @@
 
 class Vamana {
 public:
-  void prune(NodeId node, NodeList &candidateSet);
+  void prune(NodeId node,const std::vector<Neighbour> &candidateSet);
   SearchResults greedySearch(FloatVectorView query, uint64_t k);
   void insertIntoSet(const NodeList &from, NodeList &to,
                      FloatVectorView comparisonVector);
@@ -57,7 +57,7 @@ public:
   }
 
   void buildIndex();
-  std::unique_ptr<NodeList> search(NodeId queryNode, uint64_t k);
+  // std::unique_ptr<NodeList> search(NodeId queryNode, uint64_t k);
   void save(std::filesystem::path path) const;
 
 private:

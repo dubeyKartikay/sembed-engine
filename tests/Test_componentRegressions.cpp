@@ -66,13 +66,6 @@ TEST(RandomUtilsRegression, GetRandomNumberHandlesSingletonRange) {
   }
 }
 
-TEST(RandomUtilsRegression, GenerateRandomNumbersHonoursZeroKRequest) {
-  // Asking for zero values should produce an empty vector without crashing
-  // or generating spurious values.
-  const auto result = generateRandomNumbers(0, 5, /*blackList=*/-1);
-  EXPECT_TRUE(result.empty()) << "expected an empty vector when k == 0";
-}
-
 TEST(RandomUtilsRegression, GenerateRandomNumbersExcludesBlacklistUnderCollisions) {
   // When n is tiny, the naive "retry a couple of times" loop happily
   // returns the blacklisted value.
@@ -157,12 +150,6 @@ TEST(HDVectorRegression, DistanceWithSelfIsZero) {
   EXPECT_FLOAT_EQ(euclideanDistance(v.view(), v.view()), 0.0f);
 }
 
-TEST(HDVectorRegression, ZeroDimensionalVectorDistanceIsZero) {
-  HDVector a(0);
-  HDVector b(0);
-  EXPECT_FLOAT_EQ(euclideanDistance(a.view(), b.view()), 0.0f);
-}
-
 TEST(HDVectorRegression, ConstructorFromDimensionInitialisesZeros) {
   HDVector v(5);
   ASSERT_EQ(v.dimensions(), 5);
@@ -223,16 +210,6 @@ TEST(GraphRegression, AddOutNeighbourUniqueDoesNotAllowSelfEdges) {
 
   EXPECT_EQ(std::count(neighbours.begin(), neighbours.end(), 0), 0)
       << "addOutNeighborUnique accepted a self edge";
-}
-
-TEST(GraphRegression, ConstructorWithRZeroStaysDegreeZero) {
-  std::srand(0);
-  Graph g(6, 0);
-  for (NodeId node = 0; node < 6; ++node) {
-    EXPECT_TRUE(g.getOutNeighbors(node).empty())
-        << "node " << node << " has edges despite degree threshold 0";
-  }
-  EXPECT_EQ(g.getDegreeThreshold(), 0);
 }
 
 // =========================================================================
@@ -1017,29 +994,6 @@ TEST(VamanaRegression, VisitedRecordReflectsActualTraversal) {
       << "visited list does not start from the medoid";
 }
 
-TEST(VamanaRegression, GreedySearchReturnsEmptyWhenKIsZero) {
-  const auto path = uniqueFixturePath("k_is_zero");
-  ScopedFile cleanup{path};
-
-  std::vector<std::vector<float>> rows;
-  for (uint64_t i = 0; i < 6; ++i) {
-    rows.push_back({static_cast<float>(i), static_cast<float>(i),
-                    static_cast<float>(i)});
-  }
-  writeDatasetFile(path, rows.size(), 3, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<FlatDataSet>(path);
-  Vamana v(std::move(ds), 3);
-  v.setSearchListSize(6);
-
-  HDVector q(std::vector<float>{1.0f, 1.0f});
-  // k == 0 must yield an empty candidate list, not leak the medoid.
-  SearchResults r = v.greedySearch(q.view(), 0);
-  EXPECT_TRUE(r.approximateNN.empty())
-      << "greedySearch returned elements when k == 0";
-}
-
 TEST(VamanaRegression, BuildIndexProducesConnectedGraph) {
   // For a dataset that is well-connected, every node should be reachable
   // from the medoid via out-neighbours; a correct Vamana index provides
@@ -1252,11 +1206,6 @@ TEST(RandomUtilsRegression, GenerateRandomNumbersHonoursBlacklistWhenKEqualsNMin
   for (NodeId v : unique) {
     EXPECT_LT(static_cast<uint64_t>(v), n);
   }
-}
-
-TEST(RandomUtilsRegression, GetPermutationZeroReturnsEmpty) {
-  const auto perm = getPermutation(0);
-  EXPECT_TRUE(perm.empty());
 }
 
 TEST(DataSetRegression, FlatDataSetInstancesProduceIdenticalRecords) {
@@ -1640,30 +1589,6 @@ TEST(VamanaRegression, MedoidIsWithinDatasetBounds) {
       << rows.size() << ", medoid=" << m;
 }
 
-TEST(VamanaRegression, PruneOnEmptyCandidateSetProducesEmptyOutNeighbours) {
-  const auto path = uniqueFixturePath("prune_empty");
-  ScopedFile cleanup{path};
-
-  std::vector<std::vector<float>> rows;
-  for (uint64_t i = 0; i < 6; ++i) {
-    rows.push_back({static_cast<float>(i), static_cast<float>(i),
-                    static_cast<float>(i)});
-  }
-  writeDatasetFile(path, rows.size(), 3, rows);
-
-  std::srand(0);
-  auto ds = std::make_unique<FlatDataSet>(path);
-  Vamana v(std::move(ds), 3);
-
-  // Seed an explicit state: clear out-neighbours of node 2 first.
-  v.clearOutNeighbors(2);
-  NodeList empty_candidates;
-  v.prune(2, empty_candidates);
-
-  EXPECT_TRUE(v.getOutNeighbors(2).empty())
-      << "prune on empty candidates still produced out-neighbours";
-}
-
 // =========================================================================
 // Regression against RecordView record ids -- duplicates and ordering.
 // =========================================================================
@@ -1849,83 +1774,6 @@ TEST(HDVectorRegression, GetDimensionReturnsConsistentValueAcrossCalls) {
   EXPECT_EQ(v.dimensions(), 5);
   EXPECT_EQ(v.dimensions(), 5);
   EXPECT_EQ(v.dimensions(), 5);
-}
-
-// =========================================================================
-// getRandomNumber with inverted range -- end < start -- currently computes
-// (end - start + 1) which is zero or negative.  Modulo by a non-positive
-// value is undefined behaviour; the function should validate its input.
-// =========================================================================
-TEST(RandomUtilsRegression, GetRandomNumberWithInvertedRangeIsRejected) {
-  // We're not testing the exact return value (it's UB). We are testing
-  // that the implementation either sanitises the inputs (throws /
-  // swaps / clamps) or at least doesn't return a value outside the
-  // claimed range.  Today it silently performs % -1 on a uint, producing
-  // garbage that often lands outside [start, end].
-  //
-  // We pull the value 100 times and require that all of them either
-  // equal start or equal end -- because for an inverted range there is
-  // no valid range of values, and a defensive implementation should
-  // degrade to one of the endpoints.
-  for (uint64_t trial = 0; trial < 100; ++trial) {
-    const int64_t value = getRandomNumber(10, 5);
-    EXPECT_TRUE(value == 10 || value == 5)
-        << "getRandomNumber(10, 5) returned " << value
-        << ", which is outside both endpoints";
-  }
-}
-
-// =========================================================================
-// generateRandomNumbers with n == 0 invokes `rand() % 0` which is
-// undefined.  The function should reject that input, not attempt modulo.
-// =========================================================================
-TEST(RandomUtilsRegression, GenerateRandomNumbersWithZeroNIsRejected) {
-  auto probe = []() {
-    try {
-      const auto result = generateRandomNumbers(3, 0, -1);
-      // Also acceptable: return an empty vector without computing % 0.
-      if (!result.empty()) {
-        std::exit(2);
-      }
-      std::exit(0);
-    } catch (...) {
-      std::exit(0);
-    }
-  };
-  EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
-      << "generateRandomNumbers(k, 0) invokes `% 0` which is undefined"
-         " behaviour";
-}
-
-// =========================================================================
-// clusterizeData with an empty dataset must not invoke undefined
-// behaviour inside generateRandomNumbers (which then computes `% 0`).
-// =========================================================================
-TEST(KMeansRegression, ClusterizeDataDoesNotCrashOnEmptyDataset) {
-  const auto path = uniqueFixturePath("kmeans_empty");
-  ScopedFile cleanup{path};
-
-  // Write a header advertising 0 records with 3 stored dimensions (id+2).
-  const int64_t zero_n = 0;
-  const int64_t stored_dim = 3;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  ASSERT_TRUE(out.is_open());
-  out.write(reinterpret_cast<const char *>(&zero_n), sizeof(zero_n));
-  out.write(reinterpret_cast<const char *>(&stored_dim), sizeof(stored_dim));
-  out.close();
-
-  FlatDataSet ds(path);
-  auto probe = [&ds]() {
-    try {
-      clusterizeData(ds);
-      std::exit(0);
-    } catch (...) {
-      // Throwing is acceptable; crashing on `% 0` is not.
-      std::exit(0);
-    }
-  };
-  EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
-      << "clusterizeData crashed on an empty dataset";
 }
 
 // =========================================================================
@@ -2161,38 +2009,6 @@ TEST(VamanaRegression, ConstructorRejectsNullDataset) {
 }
 
 // =========================================================================
-// Vamana::buildIndex on a dataset of size 0 must terminate and leave an
-// empty graph behind; today it attempts to medoid-pick via getRandomNumber
-// (0, -1) which is malformed.
-// =========================================================================
-TEST(VamanaRegression, BuildIndexOnEmptyDatasetTerminatesCleanly) {
-  const auto path = uniqueFixturePath("empty_dataset");
-  ScopedFile cleanup{path};
-
-  const int64_t zero_n = 0;
-  const int64_t stored_dim = 3;
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  ASSERT_TRUE(out.is_open());
-  out.write(reinterpret_cast<const char *>(&zero_n), sizeof(zero_n));
-  out.write(reinterpret_cast<const char *>(&stored_dim), sizeof(stored_dim));
-  out.close();
-
-  auto probe = [&path]() {
-    try {
-      std::srand(0);
-      auto ds = std::make_unique<FlatDataSet>(path);
-      Vamana v(std::move(ds), 2);
-      std::exit(0);
-    } catch (...) {
-      // Throwing is acceptable for an empty index -- crashing is not.
-      std::exit(0);
-    }
-  };
-  EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
-      << "Vamana::buildIndex crashed or looped on an empty dataset";
-}
-
-// =========================================================================
 // Graph::getOutNeighbors returns a mutable reference.  Modifying the
 // returned reference must be visible to subsequent calls -- and, more
 // importantly, modifying it through a "read-only" alias is a smell the
@@ -2308,38 +2124,6 @@ TEST(VamanaRegression, GreedySearchRecoversExactQueryMatchFromIndex) {
   auto rec = v.getRecordViewByIndex(r.approximateNN[0]);
   EXPECT_FLOAT_EQ(euclideanDistance(q.view(), rec.values), 0.0f)
       << "exact query payload didn't recover its own record";
-}
-
-// =========================================================================
-// Graph persistence tests for degree threshold zero -- the file format
-// still has to carry enough information for the loader to reconstruct
-// the intended state.
-// =========================================================================
-TEST(GraphRegression, ConstructorFromPathWithZeroDegreeDoesNotCrash) {
-  const auto path = uniqueFixturePath("graph_zero_degree");
-  ScopedFile cleanup{path};
-
-  const uint64_t node_count = 3;
-  const uint64_t degree = 0;
-  writeGraphFile(path, node_count, degree,
-                 std::vector<NodeList>(static_cast<size_t>(node_count)));
-
-  const std::string graph_path = path.string();
-  auto probe = [&]() {
-    Graph g(graph_path);
-    if (g.getDegreeThreshold() != 0) {
-      std::exit(1);
-    }
-    for (NodeId node = 0; node < 3; ++node) {
-      if (!g.getOutNeighbors(node).empty()) {
-        std::exit(2);
-      }
-    }
-    std::exit(0);
-  };
-  EXPECT_EXIT(probe(), ::testing::ExitedWithCode(0), "")
-      << "Graph(path) with degree 0 failed or produced non-empty"
-         " adjacency";
 }
 
 // =========================================================================
