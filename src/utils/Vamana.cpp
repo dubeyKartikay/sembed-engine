@@ -23,6 +23,16 @@ void validateDataset(const std::unique_ptr<DataSet> &dataSet) {
   }
 }
 
+void sortAndDeduplicateCandidates(std::vector<Neighbour> &candidates) {
+  std::sort(candidates.begin(), candidates.end());
+  candidates.erase(std::unique(candidates.begin(), candidates.end(),
+                               [](const Neighbour &left,
+                                  const Neighbour &right) {
+                                 return left.node == right.node;
+                               }),
+                   candidates.end());
+}
+
 }  // namespace
 
 Vamana::Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
@@ -88,7 +98,6 @@ SearchResults Vamana::greedySearch(FloatVectorView query, uint64_t k) {
     squaredDistance(query, m_dataSet->getRecordViewByIndex(*medoid).values),
     *medoid
   });
-  // boost::dynamic_bitset<> visited(m_graph.getNodeCount());
   searchResult.visitedBitset = boost::dynamic_bitset<>(m_graph.getNodeCount());
   while (1) {
     auto nodePStarIndex = searchResult.approximateNN.closestUnexpanded();
@@ -120,28 +129,34 @@ bool Vamana::isToBePruned(NodeId pDash, NodeId pStar, NodeId p) {
 
 void Vamana::prune(NodeId node,const std::vector<Neighbour> &candidates) {
   m_graph.clearOutNeighbors(node);
-  boost::dynamic_bitset<> visited(m_graph.getNodeCount());
+  const uint64_t degreeThreshold = m_graph.getDegreeThreshold();
   boost::dynamic_bitset<> deletedCandidates(candidates.size());
   uint64_t next = 0;
+  uint64_t selected = 0;
   while (next < candidates.size()) {
-    const Neighbour pStar = candidates[next];
-    if (!visited.test(pStar.node)) {
-      m_graph.addOutNeighborUnique(node, pStar.node);
-      visited.set(pStar.node);
+    while (next < candidates.size() && deletedCandidates.test(next)) {
+      next++;
     }
-    if (m_graph.getOutNeighbors(node).size() == m_graph.getDegreeThreshold()) {
+    if (next == candidates.size()) {
       break;
     }
 
-    for (uint64_t i = 0; i < candidates.size(); i++){
+    const Neighbour pStar = candidates[next];
+    m_graph.addOutNeighborUnique(node, pStar.node);
+    deletedCandidates.set(next);
+    ++selected;
+    if (selected == degreeThreshold) {
+      break;
+    }
+
+    for (uint64_t i = next + 1; i < candidates.size(); i++){
+      if (deletedCandidates.test(i)) {
+        continue;
+      }
       const Neighbour pDash = candidates[i];
       if (isToBePruned(pDash.node, pStar.node, node)) {
         deletedCandidates.set(i);
       }
-    }
-
-    while (next < candidates.size() && deletedCandidates.test(next)) {
-      next++;
     }
   }
 }
@@ -164,36 +179,37 @@ void Vamana::buildIndex() {
                           m_dataSet->getRecordViewByIndex(neighbour).values),
           neighbour);
     }
-    candidates.insert(candidates.end(), greedySearchResult.visited.begin(),
-                      greedySearchResult.visited.end());
-    std::sort(candidates.begin(), candidates.end());
+    for (const Neighbour &neighbour : greedySearchResult.visited) {
+      if (neighbour.node == node) {
+        continue;
+      }
+      candidates.push_back(neighbour);
+    }
+    sortAndDeduplicateCandidates(candidates);
     prune(node, candidates);
     for (NodeId neighbour : m_graph.getOutNeighbors(node)) {
       m_graph.addOutNeighborUnique(neighbour, node);
-      if (m_graph.getOutNeighbors(neighbour).size() <
+      if (m_graph.getOutNeighbors(neighbour).size() <=
           m_graph.getDegreeThreshold()) {
         continue;
       }
 
+      const NodeList &neighbourOutNeighbors = m_graph.getOutNeighbors(neighbour);
       std::vector<Neighbour> candidates;
-      candidates.reserve(m_graph.getDegreeThreshold() + 1);
+      candidates.reserve(neighbourOutNeighbors.size());
       FloatVectorView neighbourView =
           m_dataSet->getRecordViewByIndex(neighbour).values;
-      for (const auto &n : m_graph.getOutNeighbors(neighbour)) {
+      for (const auto &n : neighbourOutNeighbors) {
+        if (n == neighbour) {
+          continue;
+        }
         candidates.emplace_back(
             squaredDistance(neighbourView,
                             m_dataSet->getRecordViewByIndex(n).values),
             n);
       }
+      sortAndDeduplicateCandidates(candidates);
       prune(neighbour, candidates);
-      if (std::find(m_graph.getOutNeighbors(neighbour).begin(),
-                    m_graph.getOutNeighbors(neighbour).end(),
-                    node) == m_graph.getOutNeighbors(neighbour).end()) {
-        if (m_graph.getOutNeighbors(neighbour).size() <
-            m_graph.getDegreeThreshold()) {
-          m_graph.addOutNeighborUnique(neighbour, node);
-        }
-      }
     }
   }
 }

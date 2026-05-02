@@ -136,20 +136,35 @@ The current checked-in smoke report lives at:
 - [`benchmarks/reports/local_smoke.md`](benchmarks/reports/local_smoke.md)
 - [`benchmarks/reports/local_smoke.json`](benchmarks/reports/local_smoke.json)
 
-Fixture-scale snapshot from the current smoke run:
+Fixture-scale snapshot from the current smoke run, rerun May 2, 2026:
 
-| dataset | algorithm | recall@10 | p50 latency ms | p95 latency ms | build s | RAM bytes | index bytes |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `gvec.bin` | brute force | 1.00 | 0.27 | 0.43 | - | 598016 | - |
-| `gvec.bin` | vamana r32 l64 | 1.00 | 22.98 | 24.64 | 10.37 | 1204224 | 49080 |
-| `w2v.bin` | brute force | 1.00 | 1.49 | 1.85 | - | 847872 | - |
-| `w2v.bin` | vamana r32 l64 | 1.00 | 142.27 | 144.33 | 100.48 | 1978368 | 67592 |
+| dataset | algorithm | recall@10 | qps | p50 latency ms | p95 latency ms | build s | RAM bytes | index bytes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gvec.bin` | brute force | 1.00 | 70284.10 | 0.01 | 0.02 | - | 331776 | - |
+| `gvec.bin` | vamana r32 l64 | 1.00 | 43433.53 | 0.02 | 0.03 | 0.04 | 1056768 | 49240 |
+| `w2v.bin` | brute force | 1.00 | 16870.26 | 0.06 | 0.06 | - | 630784 | - |
+| `w2v.bin` | vamana r32 l64 | 1.00 | 14195.72 | 0.07 | 0.08 | 1.17 | 1605632 | 67608 |
 
 These numbers are intentionally kept on deterministic fixture datasets so the
 report is reproducible in-repo. They are useful for recall/correctness and
 regression tracking, not as a claim of production competitiveness on tiny
 datasets. On these fixtures Vamana is slower than brute force, which is why the
 report is checked in rather than summarized selectively.
+
+Larger Google News calibration run, rerun May 2, 2026:
+
+| dataset | algorithm | recall@10 | qps | p50 latency ms | p95 latency ms | build s | RAM bytes | index bytes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gnews-6500.bin` | brute force | 1.00 | 560.06 | 1.70 | 2.18 | - | 8249344 | - |
+| `gnews-6500.bin` | vamana r32 l64 | 1.00 | 2989.22 | 0.32 | 0.51 | 52.13 | 23609344 | 1714376 |
+
+The `gnews-6500.bin` dataset is a first-6500-vector subset of the converted
+Google News word2vec embeddings from
+`testdata/embeddings/gnews/GoogleNews-vectors-negative300.bin`. It uses the same
+benchmark workload as the smoke profile: `query_count=32`, `k=10`,
+`seed=20260421`, and `exclude_self=true`. Against brute force on this workload,
+Vamana achieved 5.34x query throughput with 81.40% lower p50 latency and 76.43%
+lower p95 latency while preserving recall@10.
 
 Quick start from a fresh checkout:
 
