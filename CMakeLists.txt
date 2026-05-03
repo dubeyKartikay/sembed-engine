@@ -8,11 +8,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(SEMBED_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(SEMBED_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 
+include(FetchContent)
+
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(OpenMP REQUIRED)
-find_package(Armadillo QUIET)
-
-include(FetchContent)
 
 add_subdirectory(external)
 
@@ -42,56 +41,49 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     endif()
 endif()
 
-if(ARMADILLO_FOUND)
-    add_library(sembed_armadillo INTERFACE)
-    target_include_directories(sembed_armadillo INTERFACE ${ARMADILLO_INCLUDE_DIRS})
-    target_link_libraries(sembed_armadillo INTERFACE ${ARMADILLO_LIBRARIES})
-else()
-    FetchContent_Declare(
-        armadillo
-        GIT_REPOSITORY https://gitlab.com/conradsnicta/armadillo-code.git
-        GIT_TAG 36b0cd37ec7f8598cd3705e5eae8b4ad01f69559 # 15.2.6
-    )
-    FetchContent_MakeAvailable(armadillo)
-    add_library(sembed_armadillo INTERFACE)
-    target_link_libraries(sembed_armadillo INTERFACE armadillo)
-endif()
+FetchContent_Declare(
+    armadillo
+    GIT_REPOSITORY https://gitlab.com/conradsnicta/armadillo-code.git
+    GIT_TAG 36b0cd37ec7f8598cd3705e5eae8b4ad01f69559 # 15.2.6
+)
+FetchContent_MakeAvailable(armadillo)
+add_library(sembed_armadillo INTERFACE)
+target_link_libraries(sembed_armadillo INTERFACE armadillo)
 
-find_path(MLPACK_INCLUDE_DIR NAMES mlpack.hpp)
-if(NOT MLPACK_INCLUDE_DIR)
-    sembed_fetch_header_dependency(
-        mlpack
-        https://github.com/mlpack/mlpack.git
-        4.7.0
-    )
-    set(MLPACK_INCLUDE_DIR "${mlpack_SOURCE_DIR}/src" CACHE PATH "mlpack include directory" FORCE)
-endif()
+FetchContent_Declare(
+    boost_headers
+    URL https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_SUBDIR cmake-do-not-add
+)
+FetchContent_MakeAvailable(boost_headers)
 
-find_path(ENSMALLEN_INCLUDE_DIR NAMES ensmallen.hpp)
-if(NOT ENSMALLEN_INCLUDE_DIR)
-    sembed_fetch_header_dependency(
-        ensmallen
-        https://github.com/mlpack/ensmallen.git
-        2.22.2
-    )
-    set(ENSMALLEN_INCLUDE_DIR "${ensmallen_SOURCE_DIR}/include" CACHE PATH "ensmallen include directory" FORCE)
-endif()
+add_library(sembed_boost INTERFACE)
+target_include_directories(sembed_boost SYSTEM INTERFACE ${boost_headers_SOURCE_DIR})
 
-find_path(CEREAL_INCLUDE_DIR NAMES cereal/cereal.hpp)
-if(NOT CEREAL_INCLUDE_DIR)
-    sembed_fetch_header_dependency(
-        cereal
-        https://github.com/USCiLab/cereal.git
-        v1.3.2
-    )
-    set(CEREAL_INCLUDE_DIR "${cereal_SOURCE_DIR}/include" CACHE PATH "cereal include directory" FORCE)
-endif()
+sembed_fetch_header_dependency(
+    mlpack
+    https://github.com/mlpack/mlpack.git
+    4.7.0
+)
+
+sembed_fetch_header_dependency(
+    ensmallen
+    https://github.com/mlpack/ensmallen.git
+    2.22.2
+)
+
+sembed_fetch_header_dependency(
+    cereal
+    https://github.com/USCiLab/cereal.git
+    v1.3.2
+)
 
 add_library(sembed_mlpack INTERFACE)
 target_include_directories(sembed_mlpack SYSTEM INTERFACE
-    ${MLPACK_INCLUDE_DIR}
-    ${ENSMALLEN_INCLUDE_DIR}
-    ${CEREAL_INCLUDE_DIR}
+    ${mlpack_SOURCE_DIR}/src
+    ${ensmallen_SOURCE_DIR}/include
+    ${cereal_SOURCE_DIR}/include
 )
 target_link_libraries(sembed_mlpack INTERFACE sembed_armadillo OpenMP::OpenMP_CXX)
 
@@ -113,7 +105,7 @@ target_include_directories(benchmark_support PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(batch_stochastic_kmeans PUBLIC ${PROJECT_INCLUDE_DIR})
 target_include_directories(cli_support PUBLIC ${PROJECT_INCLUDE_DIR})
 
-target_link_libraries(utils PUBLIC sembed_project_options OpenMP::OpenMP_CXX sembed_armadillo sembed_mlpack)
+target_link_libraries(utils PUBLIC sembed_project_options OpenMP::OpenMP_CXX sembed_armadillo sembed_mlpack sembed_boost)
 target_link_libraries(benchmark_support PUBLIC utils nlohmann_json::nlohmann_json)
 target_link_libraries(batch_stochastic_kmeans PUBLIC utils)
 target_link_libraries(cli_support PUBLIC utils CLI11::CLI11 nlohmann_json::nlohmann_json)

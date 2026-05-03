@@ -88,6 +88,15 @@ HDVector copyIntoHDVector(FloatVectorView source) {
   return HDVector(values);
 }
 
+NodeList nodeListFromSortedResults(const SortedBoundedVector &results) {
+  NodeList nodes;
+  nodes.reserve(static_cast<size_t>(results.getSize()));
+  for (uint64_t i = 0; i < results.getSize(); ++i) {
+    nodes.push_back(results[i].node);
+  }
+  return nodes;
+}
+
 std::unique_ptr<DataSet> makeDataSet(const std::filesystem::path &path) {
   return std::make_unique<FlatDataSet>(path);
 }
@@ -190,7 +199,8 @@ std::vector<QueryMeasurement> runVamanaQueries(
     const Clock::time_point end = Clock::now();
 
     measurements.push_back(
-        {filterAndTruncateResults(results.approximateNN, k, query.excludedBaseNode),
+        {filterAndTruncateResults(nodeListFromSortedResults(results.approximateNN),
+                                  k, query.excludedBaseNode),
          elapsedMilliseconds(start, end),
          static_cast<double>(results.visited.size())});
   }

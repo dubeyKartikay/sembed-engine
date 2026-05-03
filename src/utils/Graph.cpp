@@ -70,16 +70,12 @@ void Graph::addOutNeighborUnique(NodeId from, NodeId to) {
   if (to == from) {
     return;
   }
-  if (from >= static_cast<uint64_t>(m_adjList.size()) ||
-      to >= static_cast<uint64_t>(m_adjList.size())) {
+  if (to >= static_cast<uint64_t>(m_adjList.size())) {
     throw std::out_of_range("node index is outside graph bounds");
   }
 
   NodeList &neighbors = mutableOutNeighbors(from);
   if (std::find(neighbors.begin(), neighbors.end(), to) == neighbors.end()) {
-    if (neighbors.size() >= m_degreeThreshold) {
-      throw std::invalid_argument("graph adjacency exceeds degree threshold");
-    }
     neighbors.push_back(to);
   }
 }

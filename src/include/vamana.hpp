@@ -10,13 +10,16 @@
 #include "node_types.hpp"
 #include "searchresults.hpp"
 #include "vector_view.hpp"
+#include <boost/dynamic_bitset.hpp>
 
 class Vamana {
 public:
-  void prune(NodeId node, NodeList &candidateSet);
+  void prune(NodeId node,const std::vector<Neighbour> &candidateSet);
   SearchResults greedySearch(FloatVectorView query, uint64_t k);
   void insertIntoSet(const NodeList &from, NodeList &to,
                      FloatVectorView comparisonVector);
+  void insertIntoSet(const NodeList &from, SortedBoundedVector &to,
+                     FloatVectorView comparisonVector, boost::dynamic_bitset<> &visited);
   Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
          float distanceThreshold = 1.2f);
   Vamana(std::unique_ptr<DataSet> dataSet, Graph graph,
@@ -54,7 +57,7 @@ public:
   }
 
   void buildIndex();
-  std::unique_ptr<NodeList> search(NodeId queryNode, uint64_t k);
+  // std::unique_ptr<NodeList> search(NodeId queryNode, uint64_t k);
   void save(std::filesystem::path path) const;
 
 private:
