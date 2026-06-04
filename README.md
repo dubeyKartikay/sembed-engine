@@ -1,5 +1,7 @@
 # sembed-engine
 
+> 📈 **Writeups:** [16× Faster Vamana Search Without Changing the Algorithm](https://dubeykartikay.com/posts/sembed-engine-vector-search-performance/) · [What I Got Wrong Implementing Graph-Based Vector Search](https://dubeykartikay.com/posts/reading-algorithms-like-an-engineer/)
+
 `sembed-engine` is a small C++17 approximate nearest neighbor engine for dense vector embeddings.
 
 It provides:
