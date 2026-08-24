@@ -4,29 +4,31 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 #include "dataset.hpp"
 #include "graph.hpp"
 #include "node_types.hpp"
 #include "searchresults.hpp"
 #include "vector_view.hpp"
-#include <boost/dynamic_bitset.hpp>
 
 class Vamana {
 public:
   void prune(NodeId node,const std::vector<Neighbour> &candidateSet);
-  SearchResults greedySearch(FloatVectorView query, uint64_t k);
-  void insertIntoSet(const NodeList &from, NodeList &to,
-                     FloatVectorView comparisonVector);
+  SearchResults greedySearch(FloatVectorView query, uint64_t k) const;
+  SearchResults greedySearch(FloatVectorView query, uint64_t k,
+                             uint64_t searchListSize) const;
   void insertIntoSet(const NodeList &from, SortedBoundedVector &to,
-                     FloatVectorView comparisonVector, boost::dynamic_bitset<> &visited);
+                     FloatVectorView comparisonVector,
+                     std::vector<bool> &visited) const;
   Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
-         float distanceThreshold = 1.2f);
+         float distanceThreshold = 1.2f, uint64_t searchListSize = 100);
   Vamana(std::unique_ptr<DataSet> dataSet, Graph graph,
          float distanceThreshold = 1.2f);
   Vamana(std::unique_ptr<DataSet> dataSet,
          std::filesystem::path savedVamanaIndexPath,
          float distanceThreshold = 1.2f);
+  explicit Vamana(std::filesystem::path selfContainedIndexPath);
 
   float getDistanceThreshold() const { return m_distanceThreshold; }
   void setDistanceThreshold(float alpha) { m_distanceThreshold = alpha; }
@@ -43,6 +45,7 @@ public:
   uint64_t getDegreeThreshold() const { return m_graph.getDegreeThreshold(); }
   OptionalNodeId getMedoid() const { return m_graph.getMedoid(); }
   uint64_t getNodeCount() const { return m_graph.getNodeCount(); }
+  uint64_t getDimensions() const { return m_dataSet->getDimensions(); }
   const NodeList &getOutNeighbors(NodeId node) const {
     return m_graph.getOutNeighbors(node);
   }
@@ -59,6 +62,7 @@ public:
   void buildIndex();
   // std::unique_ptr<NodeList> search(NodeId queryNode, uint64_t k);
   void save(std::filesystem::path path) const;
+  void saveIndex(std::filesystem::path path) const;
 
 private:
   std::unique_ptr<DataSet> m_dataSet;

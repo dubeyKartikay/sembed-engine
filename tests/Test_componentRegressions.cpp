@@ -643,7 +643,7 @@ TEST(VamanaRegression, InsertIntoSetDoesNotDuplicateExistingMembers) {
 
   // Reinsert the same values.  The resulting set must not grow.
   SortedBoundedVector results(rows.size());
-  boost::dynamic_bitset<> visited(rows.size());
+  std::vector<bool> visited(rows.size(), false);
   v.insertIntoSet(working, results, q.view(), visited);
   v.insertIntoSet({1, 2, 3}, results, q.view(), visited);
   working = nodesFromSortedResults(results);
@@ -1582,7 +1582,7 @@ TEST(VamanaRegression, InsertIntoSetAppendsUnseenNodesInSortedOrder) {
 
   HDVector q(std::vector<float>{3.0f, -3.0f});
   SortedBoundedVector results(rows.size());
-  boost::dynamic_bitset<> visited(rows.size());
+  std::vector<bool> visited(rows.size(), false);
   v.insertIntoSet({0, 1, 2, 3, 4, 5, 6, 7}, results, q.view(), visited);
   const NodeList working = nodesFromSortedResults(results);
 
@@ -1737,6 +1737,7 @@ TEST(VamanaRegression, GreedySearchReturnsAtLeastOneCandidateForNonEmptyDataset)
 // =========================================================================
 // Cluster-related tests -- validate the observable k-means helper steps.
 // =========================================================================
+#if 0  // The experimental clustering API is no longer part of sembed-lib.
 #include "batch_stochastic_kmeans.hpp"
 TEST(KMeansRegression, GetClosestClusterReturnsNearestCenter) {
   std::vector<std::vector<float>> storage;
@@ -1765,6 +1766,7 @@ TEST(KMeansRegression, GetClosestClusterReturnsNearestCenter) {
 
   EXPECT_EQ(closest, 0u);
 }
+#endif
 
 // =========================================================================
 // DataSet::getDimensions() truncates int64_t -> a 32-bit signed value the same way getN()
@@ -1823,6 +1825,7 @@ TEST(HDVectorRegression, GetDimensionReturnsConsistentValueAcrossCalls) {
 // End-to-end clustering with k == 1 should assign every point to the only
 // cluster and snap the center to the member nearest the cluster mean.
 // =========================================================================
+#if 0  // The experimental clustering API is no longer part of sembed-lib.
 TEST(KMeansRegression, ClusterizeDataSingleClusterAssignsAllPointsAndSnapsCenter) {
   const auto path = uniqueFixturePath("kmeans_single_cluster");
   ScopedFile cleanup{path};
@@ -2031,6 +2034,7 @@ TEST(KMeansRegression, NewCenterReturnsClusterPointClosestToMean) {
   EXPECT_FLOAT_EQ(center.record.values[0], 2.0f);
   EXPECT_FLOAT_EQ(center.record.values[1], 2.0f);
 }
+#endif
 
 // =========================================================================
 // Vamana constructor with a null dataset pointer must fail loudly.
@@ -2114,7 +2118,7 @@ TEST(VamanaRegression, InsertIntoSetWithEmptySourceLeavesTargetUnchanged) {
 
   HDVector q(std::vector<float>{1.0f, 1.0f});
   SortedBoundedVector results(rows.size());
-  boost::dynamic_bitset<> visited(rows.size());
+  std::vector<bool> visited(rows.size(), false);
   v.insertIntoSet({0, 1, 2}, results, q.view(), visited);
   const NodeList before = nodesFromSortedResults(results);
   v.insertIntoSet({}, results, q.view(), visited);
@@ -2397,7 +2401,7 @@ TEST(VamanaRegression, InsertIntoSetInsertsAtSortedPosition) {
   // Seed `working` with a proper distance-sorted sequence, then insert
   // a new element.  The result must remain sorted.
   SortedBoundedVector results(5);
-  boost::dynamic_bitset<> visited(rows.size());
+  std::vector<bool> visited(rows.size(), false);
   v.insertIntoSet({0, 1, 2, 3, 4}, results, q.view(), visited);
   const NodeList working = nodesFromSortedResults(results);
   ASSERT_EQ(working.size(), 5U);

@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <istream>
 #include <limits>
+#include <ostream>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -40,7 +42,6 @@ Graph::Graph(NodeId numberOfNodes, uint64_t degreeThreshold) {
   m_adjList =
       std::vector<NodeList>(static_cast<size_t>(numberOfNodes), NodeList());
   m_degreeThreshold = degreeThreshold;
-  #pragma omp parallel for
   for (NodeId i = 0; i < numberOfNodes; ++i) {
     auto rng = makeDeterministicRng(0x6f72617068536565ULL,
                                     {numberOfNodes, degreeThreshold, i});
@@ -105,6 +106,21 @@ Graph::Graph(std::filesystem::path path) {
     throw std::runtime_error("could not open the graph file provided");
   }
 
+  load(file);
+
+  char extra = '\0';
+  if (file.read(&extra, 1)) {
+    throw std::runtime_error("graph file contains trailing data");
+  }
+  if (!file.eof()) {
+    throw std::runtime_error("failed to validate graph file size");
+  }
+}
+
+Graph::Graph(std::istream &input) { load(input); }
+
+void Graph::load(std::istream &file) {
+
   uint64_t numberOfNodes = 0;
   uint64_t degreeThreshold = 0;
   uint64_t medoid = std::numeric_limits<uint64_t>::max();
@@ -160,13 +176,6 @@ Graph::Graph(std::filesystem::path path) {
     throw std::runtime_error("graph header contains invalid medoid");
   }
 
-  char extra = '\0';
-  if (file.read(&extra, 1)) {
-    throw std::runtime_error("graph file contains trailing data");
-  }
-  if (!file.eof()) {
-    throw std::runtime_error("failed to validate graph file size");
-  }
 }
 
 void Graph::save(std::filesystem::path path) const {
@@ -174,6 +183,11 @@ void Graph::save(std::filesystem::path path) const {
   if (!file.is_open()) {
     throw std::runtime_error("could not open the graph file provided");
   }
+
+  save(file);
+}
+
+void Graph::save(std::ostream &file) const {
 
   uint64_t numberOfNodes = static_cast<uint64_t>(m_adjList.size());
   uint64_t degreeThreshold = m_degreeThreshold;

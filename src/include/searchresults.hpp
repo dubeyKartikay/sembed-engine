@@ -7,18 +7,17 @@
 #include <cstring>
 #include <limits>
 #include <vector>
-#include <boost/dynamic_bitset.hpp>
 
-struct Neighbour{
+struct Neighbour {
   float distance;
   NodeId node;
   bool marked;
-  Neighbour(){
+  Neighbour() {
     node = std::numeric_limits<uint64_t>::max();
     distance = std::numeric_limits<float>::max();
     marked = false;
   }
-  Neighbour(float distance, NodeId node){
+  Neighbour(float distance, NodeId node) {
     this->distance = distance;
     this->node = node;
     marked = false;
@@ -30,19 +29,15 @@ struct Neighbour{
     }
     return distance < other.distance;
   }
-
-  // static std::vector<Neighbour> fromNodeList(const NodeList & nodes, boost::dynamic_bitset<> &blacklist){
-  //
-  // }
 };
 
-class SortedBoundedVector{
+class SortedBoundedVector {
   std::vector<Neighbour> neighbours;
   uint64_t capacity;
   uint64_t size;
   uint64_t cursor;
   public:
-  SortedBoundedVector(uint64_t capacity){
+  SortedBoundedVector(uint64_t capacity) {
     this->capacity = capacity;
     this->size = 0;
     neighbours.resize(capacity + 1);
@@ -52,8 +47,12 @@ class SortedBoundedVector{
   uint64_t getCursor() const { return cursor; }
   uint64_t getSize() const { return size; }
 
-  bool add(Neighbour neighbour){
-    if(size == capacity && neighbour.distance > neighbours[size - 1].distance){
+  bool add(Neighbour neighbour) {
+    if (capacity == 0) {
+      return false;
+    }
+    if (size == capacity &&
+        neighbour.distance > neighbours[size - 1].distance) {
       return false;
     }
     uint64_t l = 0, r = size;
@@ -94,7 +93,7 @@ class SortedBoundedVector{
     return true;
   }
 
-  void trim(uint64_t size){
+  void trim(uint64_t size) {
     size = std::min(size, std::min(capacity, this->size));
     this->size = size;
     neighbours.resize(size);
@@ -103,6 +102,9 @@ class SortedBoundedVector{
   const Neighbour &operator[](uint64_t index) const { return neighbours[index]; }
 
   uint64_t closestUnexpanded() {
+    if (cursor >= size) {
+      return size;
+    }
     neighbours[cursor].marked = true;
     uint64_t pre = cursor;
     while (cursor < size && neighbours[cursor].marked) {
@@ -117,7 +119,7 @@ class SortedBoundedVector{
 struct SearchResults {
   SortedBoundedVector approximateNN;
   std::vector<Neighbour> visited;
-  boost::dynamic_bitset<> visitedBitset;
+  std::vector<bool> visitedBitset;
   SearchResults(uint64_t searchListSize): approximateNN(searchListSize){
     visited.reserve(2*searchListSize);
   };

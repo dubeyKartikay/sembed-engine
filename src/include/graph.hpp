@@ -2,6 +2,7 @@
 #define GRAPH
 
 #include <filesystem>
+#include <iosfwd>
 
 #include "node_types.hpp"
 
@@ -12,6 +13,7 @@ public:
   Graph() = default;
   Graph(NodeId numberOfNodes, uint64_t degreeThreshold);
   Graph(std::filesystem::path path);
+  explicit Graph(std::istream &input);
 
   const NodeList &getOutNeighbors(NodeId node) const;
   void addOutNeighborUnique(NodeId from, NodeId to);
@@ -23,8 +25,10 @@ public:
   uint64_t getNodeCount() const { return static_cast<uint64_t>(m_adjList.size()); }
 
   void save(std::filesystem::path path) const;
+  void save(std::ostream &output) const;
 
 private:
+  void load(std::istream &input);
   NodeList &mutableOutNeighbors(NodeId node);
 
   std::vector<NodeList> m_adjList;

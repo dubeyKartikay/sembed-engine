@@ -422,7 +422,7 @@ TEST(VamanaContractRegression, InsertIntoSetPropagatesDimensionMismatch) {
 
   HDVector bad(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
   SortedBoundedVector results(2);
-  boost::dynamic_bitset<> visited(static_cast<size_t>(n));
+  std::vector<bool> visited(static_cast<size_t>(n), false);
   EXPECT_THROW(v.insertIntoSet({1, 2}, results, bad.view(), visited),
                std::invalid_argument);
 }

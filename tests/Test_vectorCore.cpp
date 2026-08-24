@@ -1,4 +1,3 @@
-#include "ArmaVector.hpp"
 #include "HDVector.hpp"
 #include "vector_view.hpp"
 
@@ -28,9 +27,9 @@ TEST(VectorCore, ComputesSquaredDistanceWithoutSquareRoot) {
   ASSERT_FLOAT_EQ(squaredDistance(left.view(), right.view()), 25.0f);
 }
 
-TEST(VectorCore, HDVectorAndArmaVectorInteroperateThroughViews) {
+TEST(VectorCore, OwnedVectorsInteroperateThroughViews) {
   HDVector left(std::vector<float>{1.0f, 2.0f});
-  ArmaVector right(std::vector<float>{4.0f, 6.0f});
+  HDVector right(std::vector<float>{4.0f, 6.0f});
 
   ASSERT_FLOAT_EQ(euclideanDistance(left.view(), right.view()), 5.0f);
   ASSERT_FLOAT_EQ(euclideanDistance(right.view(), left.view()), 5.0f);

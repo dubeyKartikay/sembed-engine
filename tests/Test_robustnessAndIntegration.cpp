@@ -445,7 +445,7 @@ TEST(VamanaRobustness, InsertIntoSetInsertsEveryMissingElement) {
 
   HDVector q(std::vector<float>{0.5f, 0.5f});
   SortedBoundedVector results(rows.size());
-  boost::dynamic_bitset<> visited(rows.size());
+  std::vector<bool> visited(rows.size(), false);
   v.insertIntoSet({2, 4}, results, q.view(), visited);
   v.insertIntoSet({1, 3, 5}, results, q.view(), visited);
   const NodeList to = nodesFromSortedResults(results);
@@ -477,7 +477,7 @@ TEST(VamanaRobustness, InsertIntoSetKeepsToSortedByDistance) {
   HDVector q(std::vector<float>{0.0f, 0.0f});
 
   SortedBoundedVector results(rows.size());
-  boost::dynamic_bitset<> visited(rows.size());
+  std::vector<bool> visited(rows.size(), false);
   v.insertIntoSet({5, 3, 1, 4, 2, 0}, results, q.view(), visited);
   const NodeList to = nodesFromSortedResults(results);
 

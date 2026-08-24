@@ -1,196 +1,146 @@
 cmake_minimum_required(VERSION 3.21)
-project(sembed VERSION 1.0)
+project(sembed VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
 
 option(SEMBED_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(SEMBED_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 
-include(FetchContent)
+set(SEMBED_PUBLIC_HEADERS
+    include/sembed/dataset_view.hpp
+    include/sembed/index.hpp
+    include/sembed/query.hpp
+    include/sembed/sembed.hpp
+    include/sembed/vector_view.hpp
+)
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-find_package(OpenMP REQUIRED)
+add_library(sembed-lib STATIC
+    ${SEMBED_PUBLIC_HEADERS}
+    src/lib/sembed.cpp
+    src/utils/HDVector.cpp
+    src/utils/randomUtils.cpp
+    src/utils/flatDataset.cpp
+    src/utils/Vamana.cpp
+    src/utils/Graph.cpp
+)
+add_library(sembed::sembed ALIAS sembed-lib)
 
-add_subdirectory(external)
+set_target_properties(sembed-lib PROPERTIES
+    OUTPUT_NAME sembed
+    EXPORT_NAME sembed
+    PUBLIC_HEADER "${SEMBED_PUBLIC_HEADERS}"
+)
 
-set(PROJECT_INCLUDE_DIR src/include)
+target_compile_features(sembed-lib PUBLIC cxx_std_17)
+target_include_directories(sembed-lib
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/include
+)
 
-macro(sembed_fetch_header_dependency dependency_name repository tag)
-    FetchContent_Declare(
-        ${dependency_name}
-        GIT_REPOSITORY ${repository}
-        GIT_TAG ${tag}
-        GIT_SHALLOW TRUE
-        SOURCE_SUBDIR cmake-do-not-add
-    )
-    FetchContent_MakeAvailable(${dependency_name})
-endmacro()
-
-add_library(sembed_project_options INTERFACE)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(sembed_project_options INTERFACE -Wall -Wextra -Wpedantic)
+    target_compile_options(sembed-lib PRIVATE -Wall -Wextra -Wpedantic)
     if(SEMBED_ENABLE_ASAN)
-        target_compile_options(sembed_project_options INTERFACE -fsanitize=address -fno-omit-frame-pointer)
-        target_link_options(sembed_project_options INTERFACE -fsanitize=address -fno-omit-frame-pointer)
+        target_compile_options(sembed-lib PUBLIC -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(sembed-lib PUBLIC -fsanitize=address -fno-omit-frame-pointer)
     endif()
     if(SEMBED_ENABLE_UBSAN)
-        target_compile_options(sembed_project_options INTERFACE -fsanitize=undefined -fno-omit-frame-pointer)
-        target_link_options(sembed_project_options INTERFACE -fsanitize=undefined -fno-omit-frame-pointer)
+        target_compile_options(sembed-lib PUBLIC -fsanitize=undefined -fno-omit-frame-pointer)
+        target_link_options(sembed-lib PUBLIC -fsanitize=undefined -fno-omit-frame-pointer)
     endif()
 endif()
 
-FetchContent_Declare(
-    armadillo
-    GIT_REPOSITORY https://gitlab.com/conradsnicta/armadillo-code.git
-    GIT_TAG 36b0cd37ec7f8598cd3705e5eae8b4ad01f69559 # 15.2.6
+add_executable(sembed
+    src/main/main.cpp
+    src/main/cli_workflow.cpp
 )
-FetchContent_MakeAvailable(armadillo)
-add_library(sembed_armadillo INTERFACE)
-target_link_libraries(sembed_armadillo INTERFACE armadillo)
-
-FetchContent_Declare(
-    boost_headers
-    URL https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    SOURCE_SUBDIR cmake-do-not-add
+target_compile_features(sembed PRIVATE cxx_std_17)
+target_include_directories(sembed PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/include
 )
-FetchContent_MakeAvailable(boost_headers)
-
-add_library(sembed_boost INTERFACE)
-target_include_directories(sembed_boost SYSTEM INTERFACE ${boost_headers_SOURCE_DIR})
-
-sembed_fetch_header_dependency(
-    mlpack
-    https://github.com/mlpack/mlpack.git
-    4.7.0
+target_include_directories(sembed SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/CLI11/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/json/single_include
 )
+target_link_libraries(sembed PRIVATE sembed-lib)
 
-sembed_fetch_header_dependency(
-    ensmallen
-    https://github.com/mlpack/ensmallen.git
-    2.22.2
+install(TARGETS sembed-lib
+    EXPORT sembedTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/sembed
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(TARGETS sembed RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(EXPORT sembedTargets
+    FILE sembedTargets.cmake
+    NAMESPACE sembed::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sembed
 )
 
-sembed_fetch_header_dependency(
-    cereal
-    https://github.com/USCiLab/cereal.git
-    v1.3.2
+configure_package_config_file(
+    cmake/sembedConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/sembedConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sembed
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/sembedConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/sembedConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/sembedConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/sembed
 )
 
-add_library(sembed_mlpack INTERFACE)
-target_include_directories(sembed_mlpack SYSTEM INTERFACE
-    ${mlpack_SOURCE_DIR}/src
-    ${ensmallen_SOURCE_DIR}/include
-    ${cereal_SOURCE_DIR}/include
-)
-target_link_libraries(sembed_mlpack INTERFACE sembed_armadillo OpenMP::OpenMP_CXX)
-
-add_library(utils STATIC
-    src/utils/ArmaVector.cpp
-    src/utils/randomUtils.cpp
-    src/utils/flatDataset.cpp
-    src/utils/HDVector.cpp
-    src/utils/Vamana.cpp
-    src/utils/Graph.cpp
-    src/utils/diskAnn.cpp
-)
-add_library(benchmark_support STATIC src/bench/benchmark_harness.cpp)
-add_library(batch_stochastic_kmeans STATIC src/load/batch_stochastic_kmeans.cpp)
-add_library(cli_support STATIC src/main/cli_workflow.cpp)
-
-target_include_directories(utils PUBLIC ${PROJECT_INCLUDE_DIR})
-target_include_directories(benchmark_support PUBLIC ${PROJECT_INCLUDE_DIR})
-target_include_directories(batch_stochastic_kmeans PUBLIC ${PROJECT_INCLUDE_DIR})
-target_include_directories(cli_support PUBLIC ${PROJECT_INCLUDE_DIR})
-
-target_link_libraries(utils PUBLIC sembed_project_options OpenMP::OpenMP_CXX sembed_armadillo sembed_mlpack sembed_boost)
-target_link_libraries(benchmark_support PUBLIC utils nlohmann_json::nlohmann_json)
-target_link_libraries(batch_stochastic_kmeans PUBLIC utils)
-target_link_libraries(cli_support PUBLIC utils CLI11::CLI11 nlohmann_json::nlohmann_json)
-
-add_executable(sembed src/main/main.cpp)
-target_include_directories(sembed PUBLIC ${PROJECT_INCLUDE_DIR})
-target_link_libraries(sembed PUBLIC cli_support)
-
-add_executable(sembed_benchmark src/bench/main.cpp)
-target_include_directories(sembed_benchmark PUBLIC ${PROJECT_INCLUDE_DIR})
-target_link_libraries(sembed_benchmark PUBLIC benchmark_support CLI11::CLI11)
-
-add_executable(sembed_diskann_build_benchmark
-    src/bench/diskann_build_benchmark.cpp
-)
-target_include_directories(sembed_diskann_build_benchmark PUBLIC
-    ${PROJECT_INCLUDE_DIR}
-)
-target_link_libraries(sembed_diskann_build_benchmark PUBLIC utils)
-
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
 
-set(GLOVE_FIXTURE "${CMAKE_BINARY_DIR}/gvec.bin")
-set(WORD2VEC_FIXTURE "${CMAKE_BINARY_DIR}/w2v.bin")
+set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/googletest EXCLUDE_FROM_ALL)
 
-
-add_custom_command(
-    OUTPUT "${GLOVE_FIXTURE}" "${WORD2VEC_FIXTURE}"
+file(GLOB SEMBED_TEST_SOURCES CONFIGURE_DEPENDS tests/Test_*.cpp)
+add_executable(sembed-tests
+    ${SEMBED_TEST_SOURCES}
+    src/main/cli_workflow.cpp
+)
+target_compile_features(sembed-tests PRIVATE cxx_std_17)
+target_include_directories(sembed-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+)
+target_include_directories(sembed-tests SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/CLI11/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/json/single_include
+)
+target_link_libraries(sembed-tests PRIVATE sembed-lib GTest::gtest_main)
+add_dependencies(sembed-tests sembed)
+target_compile_definitions(sembed-tests PRIVATE
+    SEMBED_TEST_BINARY_DIR="${CMAKE_BINARY_DIR}"
+    SEMBED_TEST_PYTHON="${Python3_EXECUTABLE}"
+    SEMBED_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+add_custom_command(TARGET sembed-tests PRE_BUILD
     COMMAND ${Python3_EXECUTABLE}
-            "${CMAKE_SOURCE_DIR}/scripts/generate_embedding_fixtures.py"
-            --output-dir "${CMAKE_BINARY_DIR}"
-    DEPENDS
-        "${CMAKE_SOURCE_DIR}/scripts/generate_embedding_fixtures.py"
-        "${CMAKE_SOURCE_DIR}/convertUtils/convertGloveTXT.c"
-        "${CMAKE_SOURCE_DIR}/convertUtils/convertWord2vectDS.c"
-        "${CMAKE_SOURCE_DIR}/testdata/embeddings/glove/glove.6B.50d.subset.txt"
-        "${CMAKE_SOURCE_DIR}/testdata/embeddings/word2vec/google-word2vec.subset.bin"
-    COMMENT "Generating embedding fixtures"
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_embedding_fixtures.py
+            --output-dir ${CMAKE_BINARY_DIR}
+    COMMENT "Generating embedding fixtures for native tests"
     VERBATIM
 )
-
-add_custom_target(embedding_fixtures DEPENDS "${GLOVE_FIXTURE}" "${WORD2VEC_FIXTURE}")
-
-file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/Test_*.cpp")
-add_executable(Test ${TEST_SOURCES})
-target_link_libraries(Test PUBLIC
-    GTest::gtest_main
-    utils
-    batch_stochastic_kmeans
-    benchmark_support
-    cli_support
-)
-target_compile_definitions(Test PRIVATE
-    SEMBED_TEST_BINARY_DIR="${CMAKE_BINARY_DIR}"
-)
-add_dependencies(Test embedding_fixtures)
 
 include(GoogleTest)
-gtest_discover_tests(Test)
+gtest_discover_tests(sembed-tests)
 
-set(REPORT_DIR "${CMAKE_BINARY_DIR}/test-report")
-
-function(add_report_target name comment)
-    add_custom_target(${name}
-        DEPENDS Test
-        COMMAND ${CMAKE_CTEST_COMMAND} --test-dir "${CMAKE_BINARY_DIR}" --output-on-failure
-                --output-junit "${REPORT_DIR}/junit.xml"
-        ${ARGN}
-        COMMENT "${comment}"
-        USES_TERMINAL
-        VERBATIM
-    )
-endfunction()
-
-add_report_target(test_report "Running tests and generating HTML report")
-
-add_custom_target(benchmark_smoke
-    DEPENDS sembed_benchmark embedding_fixtures
+add_test(
+    NAME sembed_python_integration
     COMMAND ${Python3_EXECUTABLE}
-            "${CMAKE_SOURCE_DIR}/scripts/run_benchmarks.py"
-            --benchmark-binary "$<TARGET_FILE:sembed_benchmark>"
-            --config "${CMAKE_SOURCE_DIR}/benchmarks/local_smoke.json"
-            --build-dir "${CMAKE_BINARY_DIR}"
-            --output "${CMAKE_BINARY_DIR}/benchmark-report/local-smoke.json"
-    COMMENT "Running the local benchmark smoke profile"
-    USES_TERMINAL
-    VERBATIM
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sembed.py
+            --sembed $<TARGET_FILE:sembed>
 )

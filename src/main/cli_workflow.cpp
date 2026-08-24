@@ -1,230 +1,181 @@
 #include "cli_workflow.hpp"
 
-#include <fstream>
+#include <filesystem>
 #include <iostream>
-#include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
-
-#include "dataset.hpp"
-#include "graph.hpp"
-#include "vamana.hpp"
-#include "vector_view.hpp"
+#include <sembed/sembed.hpp>
 
 namespace {
 
 using Json = nlohmann::json;
 
-std::unique_ptr<DataSet> makeDataSet(const std::filesystem::path &path) {
-  return std::make_unique<FlatDataSet>(path);
-}
-
-void ensureParentDirectoryExists(const std::filesystem::path &path) {
-  const std::filesystem::path parent = path.parent_path();
-  if (!parent.empty()) {
-    std::filesystem::create_directories(parent);
+std::vector<float> parseVector(const Json& value) {
+  if (!value.is_array()) {
+    throw std::invalid_argument("query vector must be a JSON array");
   }
+  std::vector<float> vector;
+  vector.reserve(value.size());
+  for (const Json& component : value) {
+    if (!component.is_number()) {
+      throw std::invalid_argument("query vector components must be numbers");
+    }
+    vector.push_back(component.get<float>());
+  }
+  return vector;
 }
 
-Json baseDataSetJson(DataSet &dataSet, const std::filesystem::path &path) {
-  return {{"path", path.string()},
-          {"records", dataSet.getN()},
-          {"dimensions", dataSet.getDimensions()}};
+Json resultsJson(const sembed::Index& index, const std::vector<float>& vector,
+                 const sembed::QueryConfig& config) {
+  const std::vector<sembed::Neighbor> neighbors = sembed::query(
+      index, sembed::FloatVectorView(vector), config);
+  Json results = Json::array();
+  for (const sembed::Neighbor& neighbor : neighbors) {
+    results.push_back({{"node", neighbor.node},
+                       {"record_id", neighbor.recordId},
+                       {"distance", neighbor.distance}});
+  }
+  return results;
 }
 
-Json graphSummaryJson(const Graph &graph) {
-  uint64_t totalEdges = 0;
-  uint64_t maxOutDegree = 0;
-  for (NodeId node = 0; node < graph.getNodeCount(); ++node) {
-    const uint64_t degree =
-        static_cast<uint64_t>(graph.getOutNeighbors(node).size());
-    totalEdges += degree;
-    if (degree > maxOutDegree) {
-      maxOutDegree = degree;
+Json queryResponse(const sembed::Index& index, const Json& request,
+                   const sembed::QueryConfig& defaults) {
+  const Json& vectorJson =
+      request.is_object() ? request.at("vector") : request;
+  const std::vector<float> vector = parseVector(vectorJson);
+
+  sembed::QueryConfig config = defaults;
+  if (request.is_object()) {
+    config.k = request.value("k", config.k);
+    config.searchListSize =
+        request.value("search_list_size", config.searchListSize);
+  }
+
+  Json response = {{"results", resultsJson(index, vector, config)}};
+  if (request.is_object() && request.contains("id")) {
+    response["id"] = request["id"];
+  }
+  return response;
+}
+
+void runStreamingQueries(const sembed::Index& index,
+                         const sembed::QueryConfig& defaults) {
+  std::string line;
+  while (std::getline(std::cin, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    try {
+      const Json request = Json::parse(line);
+      std::cout << queryResponse(index, request, defaults).dump() << '\n'
+                << std::flush;
+    } catch (const std::exception& error) {
+      std::cout << Json({{"error", error.what()}}).dump() << '\n'
+                << std::flush;
     }
   }
-
-  const double averageOutDegree =
-      graph.getNodeCount() == 0
-          ? 0.0
-          : static_cast<double>(totalEdges) /
-                static_cast<double>(graph.getNodeCount());
-
-  return {{"nodes", graph.getNodeCount()},
-          {"degree_threshold", graph.getDegreeThreshold()},
-          {"medoid",
-           graph.getMedoid() ? Json(*graph.getMedoid()) : Json(nullptr)},
-          {"total_edges", totalEdges},
-          {"average_out_degree", averageOutDegree},
-          {"max_out_degree", maxOutDegree}};
-}
-
-Json recordResultJson(const RecordView &queryRecord,
-                      const RecordView &resultRecord, NodeId node) {
-  return {{"node", node},
-          {"record_id", resultRecord.recordId},
-          {"distance", euclideanDistance(queryRecord.values,
-                                          resultRecord.values)}};
-}
-
-Json visitedNodesJson(const std::vector<Neighbour> &visited) {
-  Json nodes = Json::array();
-  for (const Neighbour &neighbour : visited) {
-    nodes.push_back(neighbour.node);
-  }
-  return nodes;
 }
 
 }  // namespace
 
-std::string buildIndexWorkflow(const BuildIndexOptions &options) {
-  std::unique_ptr<DataSet> dataSet = makeDataSet(options.datasetPath);
-  const Json dataSetJson = baseDataSetJson(*dataSet, options.datasetPath);
+int runSembedCli(int argc, char** argv) {
+  std::filesystem::path datasetPath;
+  std::filesystem::path outputPath;
+  std::filesystem::path indexPath;
+  std::string vectorJson;
+  bool stdinJsonl = false;
+  sembed::IndexConfig indexConfig;
+  sembed::QueryConfig queryConfig;
 
-  Vamana index(std::move(dataSet), options.degreeThreshold,
-               options.distanceThreshold);
-  ensureParentDirectoryExists(options.outputPath);
-  index.save(options.outputPath);
-
-  Json output = {{"command", "build-index"},
-                 {"dataset", dataSetJson},
-                 {"index",
-                  {{"path", options.outputPath.string()},
-                   {"degree_threshold", index.getDegreeThreshold()},
-                   {"distance_threshold", index.getDistanceThreshold()},
-                   {"medoid",
-                    index.getMedoid() ? Json(*index.getMedoid()) : Json(nullptr)}}}};
-  return output.dump(2);
-}
-
-std::string queryIndexWorkflow(const QueryIndexOptions &options) {
-  std::unique_ptr<DataSet> dataSet = makeDataSet(options.datasetPath);
-  if (options.queryNode >= dataSet->getN()) {
-    throw std::out_of_range("query node is outside dataset bounds");
-  }
-
-  Vamana index(std::move(dataSet), options.indexPath);
-  index.setSearchListSize(static_cast<int64_t>(options.searchListSize));
-
-  const RecordView queryRecord = index.getRecordViewByIndex(options.queryNode);
-  const SearchResults searchResults =
-      index.greedySearch(queryRecord.values, options.k);
-
-  Json results = Json::array();
-  for (uint64_t i = 0; i < searchResults.approximateNN.getSize(); ++i) {
-    const NodeId node = searchResults.approximateNN[i].node;
-    const RecordView resultRecord = index.getRecordViewByIndex(node);
-    results.push_back(recordResultJson(queryRecord, resultRecord, node));
-  }
-
-  Json output = {
-      {"command", "query-index"},
-      {"dataset", {{"path", options.datasetPath.string()}}},
-      {"index", {{"path", options.indexPath.string()}}},
-      {"query",
-       {{"node", options.queryNode},
-        {"record_id", queryRecord.recordId},
-        {"k", options.k},
-        {"search_list_size", options.searchListSize}}},
-      {"results", results},
-      {"visited_nodes", visitedNodesJson(searchResults.visited)}};
-  return output.dump(2);
-}
-
-std::string inspectIndexWorkflow(const InspectIndexOptions &options) {
-  Graph graph(options.indexPath);
-
-  Json output = {{"command", "inspect-index"},
-                 {"index",
-                  {{"path", options.indexPath.string()},
-                   {"graph", graphSummaryJson(graph)}}}};
-
-  if (options.datasetPath) {
-    std::unique_ptr<DataSet> dataSet = makeDataSet(*options.datasetPath);
-    if (dataSet->getN() != graph.getNodeCount()) {
-      throw std::runtime_error(
-          "dataset record count does not match graph node count");
-    }
-    output["dataset"] = baseDataSetJson(*dataSet, *options.datasetPath);
-  }
-
-  return output.dump(2);
-}
-
-int runSembedCli(int argc, char **argv) {
-  BuildIndexOptions buildOptions;
-  QueryIndexOptions queryOptions;
-  InspectIndexOptions inspectOptions;
-
-  CLI::App app{"Build, query, and inspect sembed indexes."};
+  CLI::App app{"Build and query self-contained Vamana indexes."};
   app.set_help_flag("-h,--help", "Show this help message and exit.");
 
-  CLI::App *buildIndex =
-      app.add_subcommand("build-index", "Build and save a Vamana index.");
-  buildIndex->add_option("--dataset", buildOptions.datasetPath,
-                         "Dataset path.")
+  CLI::App* indexCommand =
+      app.add_subcommand("index", "Build a self-contained index.");
+  indexCommand->add_option("--dataset", datasetPath, "Binary dataset path.")
       ->required();
-  buildIndex->add_option("--degree-threshold", buildOptions.degreeThreshold,
-                         "Maximum graph out-degree.")
+  indexCommand->add_option("--output", outputPath, "Output .sembed path.")
+      ->required();
+  indexCommand
+      ->add_option("--degree-threshold", indexConfig.degreeThreshold,
+                   "Maximum graph out-degree.")
       ->capture_default_str();
-  buildIndex->add_option("--distance-threshold",
-                         buildOptions.distanceThreshold,
-                         "Vamana alpha parameter.")
+  indexCommand
+      ->add_option("--search-list-size", indexConfig.searchListSize,
+                   "Candidate list size used while building.")
       ->capture_default_str();
-  buildIndex->add_option("--output", buildOptions.outputPath,
-                         "Output graph path.")
-      ->required();
-
-  CLI::App *queryIndex =
-      app.add_subcommand("query-index", "Query a saved Vamana index.");
-  queryIndex->add_option("--dataset", queryOptions.datasetPath,
-                         "Dataset path.")
-      ->required();
-  queryIndex->add_option("--index", queryOptions.indexPath,
-                         "Saved graph path.")
-      ->required();
-  queryIndex->add_option("--query-node", queryOptions.queryNode,
-                         "Dataset node to use as query.")
-      ->required();
-  queryIndex->add_option("--k", queryOptions.k, "Number of results.")
-      ->capture_default_str();
-  queryIndex->add_option("--search-list-size", queryOptions.searchListSize,
-                         "Vamana search list size.")
+  indexCommand
+      ->add_option("--distance-threshold", indexConfig.distanceThreshold,
+                   "Vamana alpha pruning parameter.")
       ->capture_default_str();
 
-  CLI::App *inspectIndex =
-      app.add_subcommand("inspect-index", "Inspect a saved Vamana index.");
-  inspectIndex->add_option("--index", inspectOptions.indexPath,
-                           "Saved graph path.")
+  CLI::App* queryCommand =
+      app.add_subcommand("query", "Query a self-contained index.");
+  queryCommand->add_option("--index", indexPath, "Input .sembed path.")
       ->required();
-  inspectIndex->add_option("--dataset", inspectOptions.datasetPath,
-                           "Optional dataset path for consistency checks.");
+  queryCommand->add_option(
+      "--vector", vectorJson,
+      "Full query vector encoded as a JSON array, for example '[1,2,3]'.");
+  queryCommand->add_flag(
+      "--stdin-jsonl", stdinJsonl,
+      "Read JSON vectors or {id,vector} objects from stdin, one per line.");
+  queryCommand->add_option("--k", queryConfig.k, "Number of neighbors.")
+      ->capture_default_str();
+  queryCommand
+      ->add_option("--search-list-size", queryConfig.searchListSize,
+                   "Candidate list size; 0 reuses the index setting.")
+      ->capture_default_str();
 
   app.require_subcommand(1);
 
   try {
     app.parse(argc, argv);
-  } catch (const CLI::ParseError &error) {
+  } catch (const CLI::ParseError& error) {
     return app.exit(error);
   }
 
   try {
-    if (*buildIndex) {
-      std::cout << buildIndexWorkflow(buildOptions) << '\n';
+    if (*indexCommand) {
+      sembed::Index index = sembed::buildIndex(datasetPath, indexConfig);
+      index.save(outputPath);
+      std::cout << Json({{"command", "index"},
+                         {"index", outputPath.string()},
+                         {"records", index.size()},
+                         {"dimensions", index.dimensions()},
+                         {"config",
+                          {{"degree_threshold", indexConfig.degreeThreshold},
+                           {"search_list_size", indexConfig.searchListSize},
+                           {"distance_threshold",
+                            indexConfig.distanceThreshold}}}})
+                       .dump(2)
+                << '\n';
       return 0;
     }
-    if (*queryIndex) {
-      std::cout << queryIndexWorkflow(queryOptions) << '\n';
+
+    if (*queryCommand) {
+      const bool hasVector = !vectorJson.empty();
+      if (stdinJsonl == hasVector) {
+        throw std::invalid_argument(
+            "provide exactly one of --vector or --stdin-jsonl");
+      }
+      const sembed::Index index = sembed::Index::load(indexPath);
+      if (stdinJsonl) {
+        runStreamingQueries(index, queryConfig);
+        return 0;
+      }
+
+      const Json request = Json::parse(vectorJson);
+      Json response = queryResponse(index, request, queryConfig);
+      response["command"] = "query";
+      response["index"] = indexPath.string();
+      std::cout << response.dump(2) << '\n';
       return 0;
     }
-    if (*inspectIndex) {
-      std::cout << inspectIndexWorkflow(inspectOptions) << '\n';
-      return 0;
-    }
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     std::cerr << "sembed: " << error.what() << '\n';
     return 1;
   }

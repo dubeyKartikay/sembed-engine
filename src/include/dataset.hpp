@@ -3,9 +3,9 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <iosfwd>
 #include <vector>
 
-#include "armadillo"
 #include "vector_view.hpp"
 
 namespace fs = std::filesystem;
@@ -38,28 +38,31 @@ public:
   uint64_t getStoredDimensions() const { return m_storedDimensions; }
   virtual void addVector(int64_t recordId, const float* vector,
                          uint64_t dimensions) = 0;
+  virtual void save(std::ostream& output) const = 0;
   virtual float *data() = 0;
 };
 
 class FlatDataSet : public DataSet {
 private:
   std::vector<int64_t> m_recordIds;
-  arma::fmat m_matrix;
+  std::vector<float> m_vectors;
 
 public:
   explicit FlatDataSet(fs::path path);
+  explicit FlatDataSet(std::istream& input);
   FlatDataSet(uint64_t dimensions);
   FlatDataSet(uint64_t dimensions, uint64_t capacity);
   FlatDataSet(const FlatDataSet &) = delete;
   FlatDataSet &operator=(const FlatDataSet &) = delete;
   FlatDataSet(FlatDataSet &&) = default;
   FlatDataSet &operator=(FlatDataSet &&) = default;
-  float *data() override { return m_matrix.memptr(); }
+  float *data() override { return m_vectors.data(); }
   RecordView getRecordViewByIndex(uint64_t index) const override;
   void addVector(int64_t recordId, const float* vector,
                  uint64_t dimensions) override;
   void setVectorByIndex(uint64_t index, int64_t recordId, const float* vector,
                         uint64_t dimensions);
+  void save(std::ostream& output) const override;
   std::vector<RecordView> getRecordViewsFromIndex(
       uint64_t index, uint64_t count) const override;
 };

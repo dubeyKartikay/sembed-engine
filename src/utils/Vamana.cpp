@@ -3,11 +3,13 @@
 #include "utils.hpp"
 #include "vector_view.hpp"
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <vector>
-#include <boost/dynamic_bitset.hpp>
 
 namespace {
 uint64_t checkedDatasetNodeCount(const std::unique_ptr<DataSet> &dataSet) {
@@ -33,17 +35,21 @@ void sortAndDeduplicateCandidates(std::vector<Neighbour> &candidates) {
                    candidates.end());
 }
 
+constexpr std::array<char, 8> kIndexMagic = {'S', 'E', 'M', 'B',
+                                              'E', 'D', '0', '1'};
+constexpr uint32_t kIndexVersion = 1;
+
 }  // namespace
 
 Vamana::Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
-               float distanceThreshold)
+               float distanceThreshold, uint64_t searchListSize)
     : m_graph([&]() -> Graph {
         return Graph(checkedDatasetNodeCount(dataSet), degreeThreshold);
       }()) {
   validateDataset(dataSet);
   m_dataSet = std::move(dataSet);
   m_distanceThreshold = distanceThreshold;
-  m_searchListSize = 100;
+  m_searchListSize = searchListSize;
   buildIndex();
 }
 
@@ -65,8 +71,55 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, std::filesystem::path path,
   m_searchListSize = 100;
 }
 
+Vamana::Vamana(std::filesystem::path path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input.is_open()) {
+    throw std::runtime_error("could not open the index file provided");
+  }
+
+  std::array<char, kIndexMagic.size()> magic{};
+  uint32_t version = 0;
+  input.read(magic.data(), static_cast<std::streamsize>(magic.size()));
+  input.read(reinterpret_cast<char *>(&version), sizeof(version));
+  input.read(reinterpret_cast<char *>(&m_distanceThreshold),
+             sizeof(m_distanceThreshold));
+  input.read(reinterpret_cast<char *>(&m_searchListSize),
+             sizeof(m_searchListSize));
+  if (!input) {
+    throw std::runtime_error("failed to read index header");
+  }
+  if (magic != kIndexMagic) {
+    throw std::runtime_error("index file has invalid magic");
+  }
+  if (version != kIndexVersion) {
+    throw std::runtime_error("index file version is not supported");
+  }
+  if (!(m_distanceThreshold > 0.0F) ||
+      !std::isfinite(m_distanceThreshold)) {
+    throw std::runtime_error("index file has invalid distance threshold");
+  }
+  if (m_searchListSize == 0) {
+    throw std::runtime_error("index file has invalid search list size");
+  }
+
+  m_dataSet = std::make_unique<FlatDataSet>(input);
+  m_graph = Graph(input);
+  if (m_dataSet->getN() != m_graph.getNodeCount()) {
+    throw std::runtime_error("index graph and dataset sizes do not match");
+  }
+
+  char trailing = '\0';
+  if (input.read(&trailing, 1)) {
+    throw std::runtime_error("index file contains trailing data");
+  }
+  if (!input.eof()) {
+    throw std::runtime_error("failed to validate index file size");
+  }
+}
+
 void Vamana::insertIntoSet(const NodeList &from, SortedBoundedVector &to,
-                           FloatVectorView comparisonVector, boost::dynamic_bitset<> &visited) {
+                           FloatVectorView comparisonVector,
+                           std::vector<bool> &visited) const {
   if (from.empty()) {
     return;
   }
@@ -74,11 +127,11 @@ void Vamana::insertIntoSet(const NodeList &from, SortedBoundedVector &to,
   std::vector<float> distances;
   toInsert.reserve(from.size());
   for (const NodeId &node : from) {
-    if (!visited.test((size_t)node)) {
+    if (!visited.at(static_cast<size_t>(node))) {
       toInsert.push_back(node);
       distances.push_back(squaredDistance(comparisonVector,
                                          m_dataSet->getRecordViewByIndex(node).values));
-      visited.set((size_t)node);
+      visited[static_cast<size_t>(node)] = true;
     }
   }
 
@@ -88,24 +141,33 @@ void Vamana::insertIntoSet(const NodeList &from, SortedBoundedVector &to,
 
 }
 
-SearchResults Vamana::greedySearch(FloatVectorView query, uint64_t k) {
-  SearchResults searchResult(m_searchListSize);
+SearchResults Vamana::greedySearch(FloatVectorView query, uint64_t k) const {
+  return greedySearch(query, k, m_searchListSize);
+}
+
+SearchResults Vamana::greedySearch(FloatVectorView query, uint64_t k,
+                                   uint64_t searchListSize) const {
+  if (query.dimensions() != m_dataSet->getDimensions()) {
+    throw std::invalid_argument("query dimensions must match the index");
+  }
+  SearchResults searchResult(searchListSize);
   const OptionalNodeId medoid = m_graph.getMedoid();
-  if (!medoid || m_searchListSize == 0 || k == 0) {
+  if (!medoid || searchListSize == 0 || k == 0) {
     return searchResult;
   }
   searchResult.approximateNN.add({
     squaredDistance(query, m_dataSet->getRecordViewByIndex(*medoid).values),
     *medoid
   });
-  searchResult.visitedBitset = boost::dynamic_bitset<>(m_graph.getNodeCount());
+  searchResult.visitedBitset.assign(
+      static_cast<size_t>(m_graph.getNodeCount()), false);
   while (1) {
     auto nodePStarIndex = searchResult.approximateNN.closestUnexpanded();
     if(nodePStarIndex >= searchResult.approximateNN.getSize()){
       break;
     }
     auto nodePStar = searchResult.approximateNN[nodePStarIndex];
-    searchResult.visitedBitset.set(nodePStar.node);
+    searchResult.visitedBitset[static_cast<size_t>(nodePStar.node)] = true;
     searchResult.visited.push_back(nodePStar);
     insertIntoSet(m_graph.getOutNeighbors(nodePStar.node),
                   searchResult.approximateNN, query,searchResult.visitedBitset);
@@ -130,11 +192,11 @@ bool Vamana::isToBePruned(NodeId pDash, NodeId pStar, NodeId p) {
 void Vamana::prune(NodeId node,const std::vector<Neighbour> &candidates) {
   m_graph.clearOutNeighbors(node);
   const uint64_t degreeThreshold = m_graph.getDegreeThreshold();
-  boost::dynamic_bitset<> deletedCandidates(candidates.size());
+  std::vector<bool> deletedCandidates(candidates.size(), false);
   uint64_t next = 0;
   uint64_t selected = 0;
   while (next < candidates.size()) {
-    while (next < candidates.size() && deletedCandidates.test(next)) {
+    while (next < candidates.size() && deletedCandidates[next]) {
       next++;
     }
     if (next == candidates.size()) {
@@ -143,19 +205,19 @@ void Vamana::prune(NodeId node,const std::vector<Neighbour> &candidates) {
 
     const Neighbour pStar = candidates[next];
     m_graph.addOutNeighborUnique(node, pStar.node);
-    deletedCandidates.set(next);
+    deletedCandidates[next] = true;
     ++selected;
     if (selected == degreeThreshold) {
       break;
     }
 
     for (uint64_t i = next + 1; i < candidates.size(); i++){
-      if (deletedCandidates.test(i)) {
+      if (deletedCandidates[i]) {
         continue;
       }
       const Neighbour pDash = candidates[i];
       if (isToBePruned(pDash.node, pStar.node, node)) {
-        deletedCandidates.set(i);
+        deletedCandidates[i] = true;
       }
     }
   }
@@ -230,4 +292,30 @@ void Vamana::buildIndex() {
 
 void Vamana::save(std::filesystem::path path) const {
   m_graph.save(path);
+}
+
+void Vamana::saveIndex(std::filesystem::path path) const {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output.is_open()) {
+    throw std::runtime_error("could not open the index file for writing");
+  }
+
+  output.write(kIndexMagic.data(),
+               static_cast<std::streamsize>(kIndexMagic.size()));
+  output.write(reinterpret_cast<const char *>(&kIndexVersion),
+               sizeof(kIndexVersion));
+  output.write(reinterpret_cast<const char *>(&m_distanceThreshold),
+               sizeof(m_distanceThreshold));
+  output.write(reinterpret_cast<const char *>(&m_searchListSize),
+               sizeof(m_searchListSize));
+  if (!output) {
+    throw std::runtime_error("failed to write index header");
+  }
+
+  m_dataSet->save(output);
+  m_graph.save(output);
+  output.flush();
+  if (!output) {
+    throw std::runtime_error("failed to write index file");
+  }
 }

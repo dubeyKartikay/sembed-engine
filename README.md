@@ -1,743 +1,242 @@
 # sembed-engine
 
-> 📈 **Writeups:** [16× Faster Vamana Search Without Changing the Algorithm](https://dubeykartikay.com/posts/sembed-engine-vector-search-performance/) · [What I Got Wrong Implementing Graph-Based Vector Search](https://dubeykartikay.com/posts/reading-algorithms-like-an-engineer/)
+`sembed-engine` is a small C++17 approximate-nearest-neighbor engine for dense
+float embeddings. It builds a Vamana-style graph index and searches it with a
+full query vector.
 
-`sembed-engine` is a small C++17 approximate nearest neighbor engine for dense vector embeddings.
+The project deliberately has only two C++ product targets:
 
-It provides:
+- `sembed-lib` builds the reusable core as `libsembed` and exports the CMake
+  target `sembed::sembed`.
+- `sembed` is a thin command-line wrapper over that library.
 
-- `FloatVectorView`, a lightweight non-owning view for dense float vectors.
-- `HDVector` and `ArmaVector`, owned dense vector containers that expose views.
-- `FlatDataSet`, a contiguous in-memory loader for binary embedding corpora.
-- A Vamana-style graph index for approximate nearest neighbor search.
-- Graph persistence with truncated-file, bad-adjacency, and trailing-byte checks.
-- A real `sembed` CLI with `build-index`, `query-index`, and `inspect-index`.
-- A reproducible benchmark harness and checked-in smoke report.
-- An experimental `batch_stochastic_kmeans` helper for clustering experiments.
-
-The main reusable APIs live under [`src/include`](src/include). The `sembed`
-binary is now a practical workflow tool rather than a demo target.
-
-## What The Project Does
-
-At a high level, the engine turns a dataset of dense embeddings into a
-bounded-degree directed graph. Each node is an embedding vector, and edges
-point to useful neighbors. Queries are answered by walking that graph greedily
-instead of scanning the full dataset.
-
-That gives you:
-
-- Deterministic index construction and deterministic benchmark workloads.
-- Persistent graph indexes that can be saved, reloaded, and inspected.
-- A compact C++ API for ANN experiments.
-- A CLI and benchmark path that make the engine easier to evaluate end to end.
-
-## Requirements
-
-You need:
-
-- CMake 3.21 or newer
-- A C++17 compiler
-- A C compiler for the fixture converters used during the build
-- Python 3
-- Git, so the vendored submodules can be initialized
-- A CMake generator such as `Ninja` or `Unix Makefiles`
-- BLAS and LAPACK libraries for Armadillo
-
-On Debian/Ubuntu, install BLAS and LAPACK with:
-
-```sh
-sudo apt install libblas-dev liblapack-dev
-```
-
-On macOS with Homebrew:
-
-```sh
-brew install openblas lapack
-```
-
-CMake fetches the pinned upstream source for project dependencies during
-configure.
+Benchmark workloads, exact baselines, timing, aggregation, and reports live in
+Python rather than in the engine.
 
 ## Build
 
-Configure and compile:
+Requirements:
+
+- CMake 3.21 or newer
+- A C++17 compiler
+- Python 3 for integration tests and benchmark orchestration
+- NumPy only when running benchmarks
+
+Configure, build, and test:
 
 ```sh
-git submodule update --init --recursive
 cmake -S . -B build
-cmake --build build
-```
-
-This build produces:
-
-- `build/libutils.a`
-- `build/libbatch_stochastic_kmeans.a`
-- `build/Test`
-- `build/sembed`
-- `build/sembed_benchmark`
-
-The build also generates deterministic embedding fixtures used by tests:
-
-- `build/gvec.bin`
-- `build/w2v.bin`
-- `build/gvec.words.bin`
-- `build/w2v.words.bin`
-
-Those fixtures are generated automatically by
-[`scripts/generate_embedding_fixtures.py`](scripts/generate_embedding_fixtures.py)
-from the checked-in subsets in [`testdata/embeddings`](testdata/embeddings).
-
-The repository vendors third-party C++ dependencies under [`external`](external):
-
-- `googletest` for tests
-- `CLI11` for the CLI binaries
-- `nlohmann/json` for benchmark and CLI JSON output
-
-Armadillo, Boost headers, mlpack, ensmallen, and cereal are fetched from pinned
-upstream sources during configure. Armadillo and Boost are linked through the
-project libraries, so code under `src` can include their headers.
-
-## Test
-
-Run the full suite with CTest:
-
-```sh
+cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Run the GoogleTest binary directly:
+The build products are:
 
-```sh
-./build/Test
+```text
+build/libsembed.a  # reusable static library; filename varies by platform
+build/sembed       # CLI
+build/sembed-tests # native regression test executable; not installed/exported
 ```
 
-Generate a JUnit-style test report:
+CLI11 and nlohmann/json are vendored header-only dependencies of the CLI. The
+core library uses the C++ standard library and does not expose either dependency
+through its public interface.
 
-```sh
-cmake --build build --target test_report
+The native GoogleTest suite is always built. It covers the core index and the
+current CLI workflow, and invokes the dependency-free Python benchmark tests.
+CTest also runs the Python public-API integration suite. Tests were adapted to
+the current architecture instead of restoring the removed C++ benchmark
+harness, Armadillo adapter, or experimental clustering implementation.
+
+## Reusable C++ API
+
+The convenience umbrella header is:
+
+```cpp
+#include <sembed/sembed.hpp>
 ```
 
-That writes:
+Larger consumers can include only the semantic area they use:
 
-- `build/test-report/junit.xml`
+- `<sembed/dataset_view.hpp>` for borrowed row-major datasets
+- `<sembed/vector_view.hpp>` for borrowed query vectors
+- `<sembed/index.hpp>` for index configuration, construction, and persistence
+- `<sembed/query.hpp>` for query configuration and ANN results
 
-The `Test` target now compiles every `tests/Test_*.cpp` file automatically, so
-new suites are not silently omitted from CI.
+`<sembed/sembed.hpp>` only includes those focused headers; it does not define
+additional API types.
 
-## Benchmark
+Build from an in-memory row-major dataset and query it:
 
-The benchmark harness is built into:
+```cpp
+#include <sembed/sembed.hpp>
 
-- `build/sembed_benchmark`
-- [`scripts/run_benchmarks.py`](scripts/run_benchmarks.py)
-- [`benchmarks/local_smoke.json`](benchmarks/local_smoke.json)
+#include <cstdint>
+#include <vector>
 
-The current checked-in smoke report lives at:
+std::vector<int64_t> ids = {10, 20, 30};
+std::vector<float> vectors = {
+    0.0F, 0.0F,
+    1.0F, 0.0F,
+    0.0F, 1.0F,
+};
 
-- [`benchmarks/reports/local_smoke.md`](benchmarks/reports/local_smoke.md)
-- [`benchmarks/reports/local_smoke.json`](benchmarks/reports/local_smoke.json)
+sembed::DatasetView dataset{
+    ids.data(), vectors.data(), /*size=*/3, /*dimensions=*/2};
+sembed::IndexConfig indexConfig{
+    /*degreeThreshold=*/2,
+    /*searchListSize=*/3,
+    /*distanceThreshold=*/1.2F,
+};
 
-Fixture-scale snapshot from the current smoke run, rerun May 2, 2026:
+sembed::Index index = sembed::buildIndex(dataset, indexConfig);
+index.save("vectors.sembed");
 
-| dataset | algorithm | recall@10 | qps | p50 latency ms | p95 latency ms | build s | RAM bytes | index bytes |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `gvec.bin` | brute force | 1.00 | 70284.10 | 0.01 | 0.02 | - | 331776 | - |
-| `gvec.bin` | vamana r32 l64 | 1.00 | 43433.53 | 0.02 | 0.03 | 0.04 | 1056768 | 49240 |
-| `w2v.bin` | brute force | 1.00 | 16870.26 | 0.06 | 0.06 | - | 630784 | - |
-| `w2v.bin` | vamana r32 l64 | 1.00 | 14195.72 | 0.07 | 0.08 | 1.17 | 1605632 | 67608 |
-
-These numbers are intentionally kept on deterministic fixture datasets so the
-report is reproducible in-repo. They are useful for recall/correctness and
-regression tracking, not as a claim of production competitiveness on tiny
-datasets. On these fixtures Vamana is slower than brute force, which is why the
-report is checked in rather than summarized selectively.
-
-Larger Google News calibration run, rerun May 2, 2026:
-
-| dataset | algorithm | recall@10 | qps | p50 latency ms | p95 latency ms | build s | RAM bytes | index bytes |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `gnews-6500.bin` | brute force | 1.00 | 560.06 | 1.70 | 2.18 | - | 8249344 | - |
-| `gnews-6500.bin` | vamana r32 l64 | 1.00 | 2989.22 | 0.32 | 0.51 | 52.13 | 23609344 | 1714376 |
-
-The `gnews-6500.bin` dataset is a first-6500-vector subset of the converted
-Google News word2vec embeddings from
-`testdata/embeddings/gnews/GoogleNews-vectors-negative300.bin`. It uses the same
-benchmark workload as the smoke profile: `query_count=32`, `k=10`,
-`seed=20260421`, and `exclude_self=true`. Against brute force on this workload,
-Vamana achieved 5.34x query throughput with 81.40% lower p50 latency and 76.43%
-lower p95 latency while preserving recall@10.
-
-Quick start from a fresh checkout:
-
-```sh
-git submodule update --init --recursive
-cmake -S . -B build
-cmake --build build --target sembed_benchmark embedding_fixtures
-cmake --build build --target benchmark_smoke
+std::vector<float> queryVector = {0.1F, 0.1F};
+std::vector<sembed::Neighbor> neighbors = sembed::query(
+    index,
+    sembed::FloatVectorView(queryVector),
+    sembed::QueryConfig{/*k=*/2, /*searchListSize=*/3});
 ```
 
-Run the checked-in smoke profile directly:
+You can also build from the repository's binary dataset format:
+
+```cpp
+sembed::Index index = sembed::buildIndex("vectors.bin", indexConfig);
+```
+
+Load a previously saved index without the original dataset:
+
+```cpp
+sembed::Index index = sembed::Index::load("vectors.sembed");
+```
+
+Each returned `sembed::Neighbor` contains:
+
+- `node`: the internal zero-based graph node
+- `recordId`: the caller-provided dataset record ID
+- `distance`: Euclidean distance from the query vector
+
+A query search-list size of zero reuses the value stored in the index.
+
+### Importing with CMake
+
+Install the package:
 
 ```sh
-python3 ./scripts/run_benchmarks.py \
-  --benchmark-binary ./build/sembed_benchmark \
+cmake --install build --prefix /desired/prefix
+```
+
+Consume it from another CMake project:
+
+```cmake
+find_package(sembed CONFIG REQUIRED)
+target_link_libraries(my_application PRIVATE sembed::sembed)
+```
+
+The installed package contains the public header, library, CLI, and CMake
+package metadata.
+
+## CLI
+
+The CLI exposes the same two core operations.
+
+Build a self-contained index:
+
+```sh
+./build/sembed index \
+  --dataset ./build/gvec.bin \
+  --degree-threshold 32 \
+  --search-list-size 64 \
+  --distance-threshold 1.2 \
+  --output ./build/gvec.sembed
+```
+
+Query with a complete vector:
+
+```sh
+./build/sembed query \
+  --index ./build/gvec.sembed \
+  --vector '[0.1,0.2,0.3]' \
+  --k 10 \
+  --search-list-size 64
+```
+
+The vector dimensionality must exactly match the index. Results are emitted as
+JSON.
+
+For benchmarks and other high-throughput callers, load the index once and
+stream JSON Lines through stdin:
+
+```sh
+printf '%s\n' \
+  '{"id":"q1","vector":[0.1,0.2,0.3]}' \
+  '{"id":"q2","vector":[0.4,0.5,0.6],"k":5}' \
+  | ./build/sembed query \
+      --index ./build/gvec.sembed \
+      --stdin-jsonl \
+      --k 10 \
+      --search-list-size 64
+```
+
+The process keeps the index resident and emits one JSON response per input
+line. An optional request `id` is copied into the response.
+
+## Persistence
+
+A `.sembed` index is self-contained and versioned. It stores:
+
+- record IDs and dense float vectors
+- graph adjacency
+- medoid and degree threshold
+- build search-list size and distance threshold
+
+The original dataset is not needed after the index is saved. Loading validates
+the magic, version, dataset shape, graph bounds, adjacency constraints,
+truncation, and trailing bytes.
+
+The input dataset format remains:
+
+```text
+int64 record_count
+int64 stored_dimensions       # vector dimensions + 1
+int64 record_ids[record_count]
+float vectors[record_count][stored_dimensions - 1]
+```
+
+All numeric fields use the host's native binary representation, so this input
+format and the current index format are intended for the same architecture.
+
+## Python benchmarks
+
+Generate the checked-in embedding fixtures when needed:
+
+```sh
+python3 scripts/generate_embedding_fixtures.py --output-dir build
+```
+
+Install NumPy and run the smoke profile:
+
+```sh
+python3 -m pip install numpy
+python3 scripts/run_benchmarks.py \
+  --sembed-binary ./build/sembed \
   --config ./benchmarks/local_smoke.json \
   --build-dir ./build \
   --output ./build/benchmark-report/local-smoke.json
 ```
 
-Run one benchmark directly:
+The Python driver owns query sampling, the exact NumPy baseline, recall,
+latency, throughput, comparisons, and report generation. It communicates with
+the long-lived CLI JSONL protocol so the index is loaded once per run.
+
+## Sanitizers
+
+AddressSanitizer and UndefinedBehaviorSanitizer remain opt-in library build
+settings:
 
 ```sh
-./build/sembed_benchmark \
-  --algorithm vamana \
-  --dataset ./build/gvec.bin \
-  --query-count 32 \
-  --k 10 \
-  --degree-threshold 32 \
-  --search-list-size 64 \
-  --distance-threshold 1.2 \
-  --artifact-dir ./build/benchmark-report/manual \
-  --output ./build/benchmark-report/manual/vamana-gvec.json
+cmake -S . -B build-asan -DSEMBED_ENABLE_ASAN=ON
+cmake --build build-asan --parallel
+ctest --test-dir build-asan --output-on-failure
 ```
-
-The JSON report tracks:
-
-- `recall_at_k`
-- `latency_p50_ms`
-- `latency_p95_ms`
-- `queries_per_second`
-- `build_time_seconds`
-- `ram_footprint_bytes`
-- `ssd_footprint_bytes`
-- `restart_time_seconds`
-
-It also records dataset load time and average visited nodes. `insert_throughput_vectors_per_second`
-is currently `null` because the engine does not expose an insert API yet.
-
-## CLI
-
-`sembed` now exposes one concrete index workflow:
-
-```sh
-./build/sembed build-index \
-  --dataset ./build/gvec.bin \
-  --degree-threshold 32 \
-  --distance-threshold 1.2 \
-  --output ./build/demo.graph
-```
-
-```sh
-./build/sembed query-index \
-  --dataset ./build/gvec.bin \
-  --index ./build/demo.graph \
-  --query-node 42 \
-  --k 10 \
-  --search-list-size 64
-```
-
-```sh
-./build/sembed inspect-index \
-  --index ./build/demo.graph \
-  --dataset ./build/gvec.bin
-```
-
-Each subcommand writes JSON to stdout so it can be piped into scripts or
-captured directly in CI.
-
-## Public API Overview
-
-The main headers are:
-
-- [`src/include/vector_view.hpp`](src/include/vector_view.hpp)
-- [`src/include/HDVector.hpp`](src/include/HDVector.hpp)
-- [`src/include/ArmaVector.hpp`](src/include/ArmaVector.hpp)
-- [`src/include/dataset.hpp`](src/include/dataset.hpp)
-- [`src/include/graph.hpp`](src/include/graph.hpp)
-- [`src/include/vamana.hpp`](src/include/vamana.hpp)
-- [`src/include/batch_stochastic_kmeans.hpp`](src/include/batch_stochastic_kmeans.hpp)
-
-### 1. Loading a dataset
-
-There is one public dataset implementation:
-
-- `FlatDataSet`: loads records into flat row-major contiguous memory.
-
-Example:
-
-```cpp
-#include <memory>
-#include "dataset.hpp"
-
-int main() {
-  auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
-
-  const uint64_t n = dataset->getN();
-  const uint64_t d = dataset->getDimensions();
-
-  RecordView record = dataset->getRecordViewByIndex(0);
-  int64_t id = record.recordId;
-  float firstValue = record.values[0];
-
-  auto batch = dataset->getRecordViewsFromIndex(10, 5);
-}
-```
-
-Key methods:
-
-- `getN()`: number of records
-- `getDimensions()`: vector dimensionality, excluding the stored record id
-- `getStoredDimensions()`: raw on-disk row width including the record id slot
-- `getRecordViewByIndex(i)`: fetch one record
-- `getRecordViewsFromIndex(i, count)`: fetch a contiguous range
-
-Trade-offs:
-
-- `FlatDataSet` is the current default for benchmarks, repeated queries, and
-  index building because records are stable contiguous views with no per-row
-  vector allocation.
-- `MmapDataSet` is a planned future improvement for lower-RAM storage and is
-  not implemented yet.
-
-### 2. Distance math with views
-
-`FloatVectorView` is the borrowed descriptor used by datasets and search APIs.
-It exposes:
-
-- `data()` for contiguous dense storage access
-- `dimensions()` for dimensionality
-- bounds-checked indexing via `operator[]`
-- `squaredDistance(a, b)` for ranking and pruning
-- `euclideanDistance(a, b)` for user-visible distances
-
-`HDVector` is backed by `std::vector<float>`. `ArmaVector` is backed by
-`arma::fvec`. Both expose `view()`.
-
-Example:
-
-```cpp
-#include "HDVector.hpp"
-#include "vector_view.hpp"
-
-HDVector a(std::vector<float>{1.0f, 2.0f});
-HDVector b(std::vector<float>{4.0f, 6.0f});
-
-float d = euclideanDistance(a.view(), b.view());  // 5.0
-```
-
-### 3. Building and querying a Vamana index
-
-Construct an index from a dataset:
-
-```cpp
-#include <memory>
-#include "HDVector.hpp"
-#include "dataset.hpp"
-#include "vamana.hpp"
-
-auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
-HDVector query(std::vector<float>{1.0f, 2.0f, 3.0f});
-
-Vamana index(std::move(dataset), /*R=*/64, /*alpha=*/1.2f);
-index.setSearchListSize(100);
-
-SearchResults result = index.greedySearch(query.view(), /*k=*/10);
-OptionalNodeId medoid = index.getMedoid();
-
-for (NodeId node : result.approximateNN) {
-  RecordView neighbor = index.getRecordViewByIndex(node);
-  const NodeList &adjacency = index.getOutNeighbors(node);
-}
-```
-
-Important knobs:
-
-- `R` / degree threshold: max out-neighbors retained per node
-- `alpha` / distance threshold: pruning aggressiveness during graph construction
-- `L` via `setSearchListSize(L)`: candidate list size during greedy search
-
-Important methods:
-
-- `buildIndex()`: rebuild the graph from a fresh deterministic seed
-- `greedySearch(query, k)`: search using a `FloatVectorView`
-- `search(queryNode, k)`: search using an existing dataset node as the query
-- `save(path)`: persist the graph
-- `getMedoid()`, `getOutNeighbors(node)`, `getDegreeThreshold()`: inspect the built graph without reaching into internal fields
-
-`SearchResults` contains:
-
-- `approximateNN`: the final top-`k` candidate node ids
-- `visited`: nodes expanded during graph traversal
-
-### 4. Saving and loading a graph index
-
-Save an already-built graph:
-
-```cpp
-index.save("my-index.graph");
-```
-
-Load a persisted graph without rebuilding:
-
-```cpp
-auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
-Vamana loaded(std::move(dataset), std::filesystem::path("my-index.graph"));
-```
-
-You can also supply an existing `Graph` directly:
-
-```cpp
-Graph graph("my-index.graph");
-auto dataset = std::make_unique<FlatDataSet>("build/gvec.bin");
-Vamana loaded(std::move(dataset), graph);
-```
-
-### 5. Experimental clustering helper
-
-The repository still ships a small clustering utility, but it is not part of
-the core ANN story. Treat it as an experimental helper:
-
-```cpp
-#include "batch_stochastic_kmeans.hpp"
-#include "dataset.hpp"
-
-FlatDataSet dataset("build/gvec.bin");
-std::vector<Cluster> clusters =
-    clusterizeData(dataset, /*k=*/8, /*iterations=*/25);
-```
-
-Each `Cluster` contains:
-
-- `center`: a `Point`
-- `points`: the assigned points
-
-The center update does not keep a synthetic centroid. The implementation
-computes the mean, then snaps the center back to the closest real point in the
-cluster.
-
-## Binary Formats
-
-### Dataset format
-
-`FlatDataSet` reads this binary layout:
-
-```text
-Header:
-  int64_t n
-  int64_t stored_dimensions
-
-For each record:
-  int64_t record_id
-  float values[stored_dimensions - 1]
-```
-
-Notes:
-
-- `stored_dimensions` includes the record id field.
-- The exposed vector dimensionality is `stored_dimensions - 1`.
-- Record ids are preserved as `int64_t`.
-
-So if you have 50-dimensional embeddings, `stored_dimensions` must be `51`.
-
-### Graph format
-
-`Graph::save()` writes:
-
-```text
-Header:
-  uint64_t node_count
-  uint64_t degree_threshold
-  uint64_t medoid_or_sentinel
-
-For each node:
-  uint64_t degree
-  uint64_t neighbors[degree]
-```
-
-If no medoid is stored, the graph file uses `UINT64_MAX` as the sentinel value.
-
-The format is unchanged in this pass, but the loader is stricter now: truncated
-files, invalid node ids, self-loops, duplicate neighbors, oversized adjacency
-lists, and trailing garbage all fail instead of being silently accepted.
-
-## How ANN Search Works
-
-This implementation follows the broad structure of a Vamana-style navigable graph index.
-
-### Distance metric
-
-User-visible distances use Euclidean distance:
-
-$$
-d(x, y) = \sqrt{\sum_{i=1}^{D}(x_i - y_i)^2}
-$$
-
-where:
-
-- `D` is the embedding dimensionality
-- `x` and `y` are embedding vectors
-
-Internally, ranking and pruning use squared distance to avoid repeated square
-roots where comparisons are equivalent.
-
-### Graph construction
-
-The index stores one graph node per record. Construction starts from an initial random bounded-degree graph and then refines it by processing the dataset in a deterministic random permutation.
-
-For each point `p`:
-
-1. Run greedy graph search using `p` as the query.
-2. Collect visited nodes as candidate neighbors.
-3. Prune the candidate set so only strong edges remain.
-4. Add reciprocal backlinks where appropriate.
-5. Re-prune neighbors whose degree grows past `R`.
-
-The result is a sparse directed graph designed to be easy to navigate with local search.
-
-### Greedy search
-
-Search begins from the graph medoid and repeatedly expands the best currently
-known unvisited candidate. The candidate set is maintained in ascending order
-of distance to the query vector and truncated to size `L`, configured with
-`setSearchListSize(L)`.
-
-Conceptually:
-
-1. Start from the medoid.
-2. Insert its outgoing neighbors into the candidate set.
-3. Always expand the closest unvisited candidate next.
-4. Stop when there are no more expandable candidates inside the top `L`.
-5. Return the closest `k` candidates found.
-
-This is why the key practical parameters are:
-
-- `R`: graph sparsity / branching factor
-- `L`: how much of the frontier search keeps
-- `k`: how many results you want returned
-
-Larger `L` usually improves recall, but it also increases search work.
-
-### Alpha-pruning math
-
-The pruning rule is what keeps the graph sparse without throwing away too much navigability.
-
-When the algorithm considers a candidate neighbor `p'` while building the out-neighbors of node `p`, it compares `p'` against an already accepted neighbor `p*`.
-
-`p'` is pruned if:
-
-$$
-\alpha \cdot d(p^\*, p') \le d(p, p')
-$$
-
-where:
-
-- `p` is the node being assigned neighbors
-- `p*` is a selected neighbor already kept
-- `p'` is another candidate neighbor
-- `\alpha` is the distance threshold, exposed in code via `getDistanceThreshold()`
-
-Interpretation:
-
-- If `p'` is already well-covered by `p*`, then the direct edge `p -> p'` is less useful.
-- A larger `alpha` usually keeps more edges.
-- A smaller `alpha` prunes more aggressively.
-
-This is the core geometric tradeoff in the index: keep enough edges for navigability, but not so many that search becomes dense and expensive.
-
-## How The K-Means Helper Works
-
-The clustering helper is a simple iterative batch procedure:
-
-1. Choose `k` initial centers from random dataset records.
-2. Assign each point to its nearest center.
-3. Compute the mean of each cluster.
-4. Replace that mean with the real cluster point closest to the mean.
-5. Repeat for the requested number of iterations.
-
-Mathematically, the mean for cluster `C` is:
-
-$$
-\mu_C = \frac{1}{|C|}\sum_{x \in C} x
-$$
-
-But the implementation does not keep `\mu_C` directly as the center. It selects:
-$$
-c_C = \arg\min_{x \in C} d(x, \mu_C)
-$$
-
-That makes the center an actual dataset point rather than a synthetic floating-point centroid.
-
-## Using It From Another CMake Project
-
-If you want to consume the code as a subdirectory:
-
-```cmake
-add_subdirectory(sembed-engine)
-
-target_link_libraries(my_app PRIVATE utils)
-target_include_directories(my_app PRIVATE
-  ${CMAKE_SOURCE_DIR}/sembed-engine/src/include
-)
-```
-
-Link `batch_stochastic_kmeans` only if you also want the experimental
-clustering helper. The main ANN engine lives in `utils`.
-
-## Roadmap Toward Billion-Scale Search
-
-This project is currently a small single-node ANN engine. To scale toward
-billion-point workloads here we have a roadmap:
-
-### Phase 0: Establish a Benchmark Harness
-
-- Integrate [ANN-Benchmarks](https://ann-benchmarks.com/) for small and
-  medium-scale evaluation.
-- Integrate
-  [BigANN](https://big-ann-benchmarks.com/neurips23.html) style datasets for
-  billion-scale runs.
-- Track at least:
-  - recall@k
-  - p50 and p95 latency
-  - queries per second
-  - build time
-  - RAM footprint
-  - SSD footprint
-  - insert throughput
-  - restart and recovery time
-- Add a brute-force baseline and at least one mature ANN baseline such as
-  Faiss/HNSW for local comparison.
-
-### Phase 1: Replace the Current Memory Layout
-
-The current object-per-vector and vector-of-vectors design is convenient for
-testing, but it does not scale.
-
-- Replace per-record heap allocations with contiguous vector storage.
-- Add memory-mapped dataset support for read-mostly serving paths.
-- Replace `std::vector<std::vector<NodeId>>` adjacency with a compact CSR-like
-  or page-aligned graph layout.
-- Use segment-local 32-bit identifiers where possible to reduce memory usage.
-- Introduce per-query scratch buffers and arena-style temporary allocation to
-  reduce allocator pressure in the hot path.
-
-### Phase 2: Make the Single-Node Engine Competitive
-
-The engine should become strong on one machine before adding cluster logic.
-
-- Add an in-memory graph index path that is competitive with modern HNSW-class
-  systems.
-- Add an SSD-backed graph index path inspired by DiskANN and Vamana:
-  - graph edges stored on disk
-  - compressed vectors stored in memory
-  - beam-style search
-  - asynchronous prefetch for graph and vector pages
-  - exact reranking on a small top candidate set
-- Replace repeated sorted-vector insert/erase operations in search with a
-  better frontier structure and cached distances.
-- Add SIMD-optimized distance kernels and avoid unnecessary `sqrt` in ranking
-  comparisons.
-
-### Phase 3: Add Compression and Reranking
-
-Compression is mandatory for practical hundred-million and billion-vector
-deployments.
-
-- Implement scalar quantization first.
-- Implement product quantization second.
-- Support compressed search with over-fetch and rerank on raw vectors.
-- Publish recall-versus-memory and recall-versus-latency curves for each
-  compression mode.
-
-### Phase 4: Turn the Library Into a Real Database Engine
-
-A credible vector database needs durable storage and operational safety, not
-just a fast search structure.
-
-- Add a write-ahead log.
-- Add mutable ingest segments and immutable sealed segments.
-- Add background compaction and rebuild pipelines.
-- Add snapshots, crash recovery, and versioned on-disk metadata.
-- Separate indexing threads from serving threads.
-- Provide a stable service API instead of relying on in-process-only usage.
-
-### Phase 5: Add Filters and Hybrid Retrieval
-
-Modern vector databases do more than pure dense ANN.
-
-- Add payload storage for structured metadata.
-- Add bitmap and inverted indexes for scalar filtering.
-- Add filter-aware ANN execution so filtering is integrated with retrieval
-  instead of applied only afterward.
-- Add sparse retrieval support and dense+sparse hybrid fusion.
-- Add support for multiple vector fields, and eventually multivector or
-  late-interaction retrieval.
-
-### Phase 6: Add Horizontal Scale
-
-After the single-node engine, storage model, and query semantics are solid, add
-distributed serving.
-
-- Add shard-local indexes and scatter/gather top-k query execution.
-- Add replication for availability and read throughput.
-- Add shard placement, rebalancing, snapshot restore, and failure recovery.
-- Add tenant-aware isolation and quota controls.
-- Evaluate whether the long-term architecture should remain partition-routed or
-  evolve toward a distributed global graph model.
-
-### Phase 7: Add Production Ergonomics
-
-To compare with state-of-the-art systems, the engine must also be observable
-and operable.
-
-- Add metrics, tracing, and query profiling.
-- Add admission control and backpressure.
-- Add benchmark dashboards and regression alarms.
-- Add rolling upgrade support.
-- Add compatibility tests for index version migration.
-- Add sustained-load tests that combine search, inserts, filtering, and restart
-  events.
-
-## Comparison Targets
-
-The practical goal is not just "support ANN", but to close specific gaps with
-current production systems.
-
-- Milvus: multiple dense index families, sparse indexes, scalar indexes, and a
-  DiskANN-style on-disk path.
-- Qdrant: real-time updates, quantization, payload filtering, distributed
-  deployment, and multivector retrieval.
-- Weaviate: hybrid search, vector compression, asynchronous indexing, sharding,
-  and replication.
-- Vespa: filter-aware nearest-neighbor search and phased reranking pipelines.
-
-These external comparison targets were checked against public documentation on
-April 21, 2026. They should be re-validated periodically as those systems
-evolve.
-
-## Recommended Execution Order
-
-The fastest credible path is:
-
-1. Win single-node benchmarks.
-2. Add compression and an SSD-backed search path.
-3. Add crash-safe segmented storage.
-4. Add filtering and hybrid retrieval.
-5. Add distributed serving and replication.
-
-## External References
-
-- [ANN-Benchmarks](https://ann-benchmarks.com/)
-- [BigANN benchmark](https://big-ann-benchmarks.com/neurips23.html)
-- [Milvus index selection](https://milvus.io/docs/ko/index_selection.md)
-- [Milvus DiskANN](https://blog.milvus.io/docs/diskann.md)
-- [Milvus scalar index](https://milvus.io/docs/scalar_index.md)
-- [Qdrant distributed deployment](https://qdrant.tech/documentation/operations/distributed_deployment/)
-- [Qdrant quantization](https://qdrant.tech/documentation/manage-data/quantization/)
-- [Qdrant search and hybrid queries](https://qdrant.tech/documentation/search/)
-- [Weaviate vector quantization](https://docs.weaviate.io/weaviate/concepts/vector-quantization)
-- [Weaviate hybrid search](https://docs.weaviate.io/weaviate/concepts/search/hybrid-search)
-- [Weaviate replication architecture](https://docs.weaviate.io/weaviate/concepts/replication-architecture)
-- [Vespa approximate ANN with HNSW](https://docs.vespa.ai/en/querying/approximate-nn-hnsw.html)
-- [Vespa phased ranking](https://docs.vespa.ai/en/phased-ranking.html)
-- [DistributedANN](https://www.microsoft.com/en-us/research/publication/distributedann/)

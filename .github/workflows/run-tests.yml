@@ -24,16 +24,16 @@ jobs:
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel
 
     - name: Test
-      run: ctest --test-dir ${{github.workspace}}/build --output-on-failure --output-junit ${{github.workspace}}/build/test-report/junit.xml
+      run: ctest --test-dir ${{github.workspace}}/build --output-on-failure --output-junit ${{github.workspace}}/build/junit.xml
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       if: ${{ always() && !cancelled() }}
       with:
         name: test-report
-        path: ${{github.workspace}}/build/test-report/junit.xml
+        path: ${{github.workspace}}/build/junit.xml
 
-    - name: Upload Coverage Report
+    - name: Publish Test Report
       uses: dorny/test-reporter@v3
       if: ${{ always() && !cancelled() }}
       with:
