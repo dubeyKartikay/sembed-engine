@@ -5,6 +5,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
+#include <sstream>
 #include <vector>
 
 namespace {
@@ -44,9 +45,9 @@ TYPED_TEST(BinaryLoadingTest, ReadsLastVectorFromGloveBinary) {
   }
 }
 
-TYPED_TEST(BinaryLoadingTest, LoadsIdBlockThenColumnMajorFloatPayload) {
+TYPED_TEST(BinaryLoadingTest, LoadsInterleavedRecordIdAndFloatRows) {
   const auto path =
-      testutils::uniqueFixturePath("dataset_layout", "column_major");
+      testutils::uniqueFixturePath("dataset_layout", "interleaved_rows");
   testutils::ScopedPathCleanup cleanup(path);
 
   const int64_t n = 2;
@@ -62,8 +63,10 @@ TYPED_TEST(BinaryLoadingTest, LoadsIdBlockThenColumnMajorFloatPayload) {
   out.write(reinterpret_cast<const char *>(&n), sizeof(n));
   out.write(reinterpret_cast<const char *>(&storedDimensions),
             sizeof(storedDimensions));
-  out.write(reinterpret_cast<const char *>(ids), sizeof(ids));
-  out.write(reinterpret_cast<const char *>(values), sizeof(values));
+  out.write(reinterpret_cast<const char *>(&ids[0]), sizeof(ids[0]));
+  out.write(reinterpret_cast<const char *>(&values[0]), 3 * sizeof(float));
+  out.write(reinterpret_cast<const char *>(&ids[1]), sizeof(ids[1]));
+  out.write(reinterpret_cast<const char *>(&values[3]), 3 * sizeof(float));
   out.close();
 
   TypeParam dataset(path);
@@ -81,6 +84,24 @@ TYPED_TEST(BinaryLoadingTest, LoadsIdBlockThenColumnMajorFloatPayload) {
   EXPECT_FLOAT_EQ(second.values[0], 4.0f);
   EXPECT_FLOAT_EQ(second.values[1], 5.0f);
   EXPECT_FLOAT_EQ(second.values[2], 6.0f);
+
+  std::stringstream buffer(std::ios::in | std::ios::out | std::ios::binary);
+  dataset.save(buffer);
+  TypeParam reloaded(buffer);
+  ASSERT_EQ(reloaded.getN(), 2U);
+  ASSERT_EQ(reloaded.getDimensions(), 3U);
+
+  RecordView reloadedFirst = reloaded.getRecordViewByIndex(0);
+  EXPECT_EQ(reloadedFirst.recordId, 42);
+  EXPECT_FLOAT_EQ(reloadedFirst.values[0], 1.0f);
+  EXPECT_FLOAT_EQ(reloadedFirst.values[1], 2.0f);
+  EXPECT_FLOAT_EQ(reloadedFirst.values[2], 3.0f);
+
+  RecordView reloadedSecond = reloaded.getRecordViewByIndex(1);
+  EXPECT_EQ(reloadedSecond.recordId, 99);
+  EXPECT_FLOAT_EQ(reloadedSecond.values[0], 4.0f);
+  EXPECT_FLOAT_EQ(reloadedSecond.values[1], 5.0f);
+  EXPECT_FLOAT_EQ(reloadedSecond.values[2], 6.0f);
 }
 
 }  // namespace

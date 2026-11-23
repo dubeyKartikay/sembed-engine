@@ -50,12 +50,15 @@ void readDataSet(std::istream& input, uint64_t& records, uint64_t& dimensions,
   recordIds.resize(static_cast<size_t>(records));
   vectors.resize(checkedValueCount(records, dimensions));
 
-  input.read(reinterpret_cast<char*>(recordIds.data()),
-             static_cast<std::streamsize>(sizeof(int64_t) * records));
-  input.read(reinterpret_cast<char*>(vectors.data()),
-             static_cast<std::streamsize>(sizeof(float) * vectors.size()));
-  if (!input) {
-    throw std::runtime_error("failed to read dataset data");
+  for (uint64_t i = 0; i < records; ++i) {
+    input.read(reinterpret_cast<char*>(&recordIds[static_cast<size_t>(i)]),
+               sizeof(int64_t));
+    input.read(reinterpret_cast<char*>(
+                   vectors.data() + static_cast<size_t>(i * dimensions)),
+               static_cast<std::streamsize>(sizeof(float) * dimensions));
+    if (!input) {
+      throw std::runtime_error("failed to read dataset data");
+    }
   }
 }
 
@@ -166,10 +169,17 @@ void FlatDataSet::save(std::ostream& output) const {
   output.write(reinterpret_cast<const char*>(&records), sizeof(records));
   output.write(reinterpret_cast<const char*>(&storedDimensions),
                sizeof(storedDimensions));
-  output.write(reinterpret_cast<const char*>(m_recordIds.data()),
-               static_cast<std::streamsize>(sizeof(int64_t) * m_recordIds.size()));
-  output.write(reinterpret_cast<const char*>(m_vectors.data()),
-               static_cast<std::streamsize>(sizeof(float) * m_vectors.size()));
+  for (uint64_t i = 0; i < m_n; ++i) {
+    output.write(
+        reinterpret_cast<const char*>(&m_recordIds[static_cast<size_t>(i)]),
+        sizeof(int64_t));
+    output.write(reinterpret_cast<const char*>(
+                     m_vectors.data() + static_cast<size_t>(i * m_dimensions)),
+                 static_cast<std::streamsize>(sizeof(float) * m_dimensions));
+    if (!output) {
+      throw std::runtime_error("failed to write dataset data");
+    }
+  }
   if (!output) {
     throw std::runtime_error("failed to write dataset data");
   }

@@ -38,9 +38,9 @@ build/sembed       # CLI
 build/sembed-tests # native regression test executable; not installed/exported
 ```
 
-CLI11 and nlohmann/json are vendored header-only dependencies of the CLI. The
-core library uses the C++ standard library and does not expose either dependency
-through its public interface.
+nlohmann/json is a vendored header-only dependency of the CLI. The core library
+uses the C++ standard library and does not expose it through its public
+interface.
 
 The native GoogleTest suite is always built. It covers the core index and the
 current CLI workflow, and invokes the dependency-free Python benchmark tests.
@@ -171,7 +171,7 @@ stream JSON Lines through stdin:
 ```sh
 printf '%s\n' \
   '{"id":"q1","vector":[0.1,0.2,0.3]}' \
-  '{"id":"q2","vector":[0.4,0.5,0.6],"k":5}' \
+  '{"id":"q2","vector":[0.4,0.5,0.6]}' \
   | ./build/sembed query \
       --index ./build/gvec.sembed \
       --stdin-jsonl \
@@ -180,7 +180,7 @@ printf '%s\n' \
 ```
 
 The process keeps the index resident and emits one JSON response per input
-line. An optional request `id` is copied into the response.
+line. Each request supplies an `id`, which is copied into the response.
 
 ## Persistence
 
@@ -200,8 +200,9 @@ The input dataset format remains:
 ```text
 int64 record_count
 int64 stored_dimensions       # vector dimensions + 1
-int64 record_ids[record_count]
-float vectors[record_count][stored_dimensions - 1]
+# repeated record_count times:
+int64 record_id
+float vector[stored_dimensions - 1]
 ```
 
 All numeric fields use the host's native binary representation, so this input

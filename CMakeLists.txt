@@ -20,11 +20,11 @@ set(SEMBED_PUBLIC_HEADERS
 add_library(sembed-lib STATIC
     ${SEMBED_PUBLIC_HEADERS}
     src/lib/sembed.cpp
-    src/utils/HDVector.cpp
+    src/lib/HDVector.cpp
     src/utils/randomUtils.cpp
-    src/utils/flatDataset.cpp
-    src/utils/Vamana.cpp
-    src/utils/Graph.cpp
+    src/lib/flatDataset.cpp
+    src/lib/Vamana.cpp
+    src/lib/Graph.cpp
 )
 add_library(sembed::sembed ALIAS sembed-lib)
 
@@ -64,7 +64,6 @@ target_include_directories(sembed PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/include
 )
 target_include_directories(sembed SYSTEM PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/CLI11/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/json/single_include
 )
 target_link_libraries(sembed PRIVATE sembed-lib)
@@ -117,7 +116,6 @@ target_include_directories(sembed-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
 )
 target_include_directories(sembed-tests SYSTEM PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/CLI11/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/json/single_include
 )
 target_link_libraries(sembed-tests PRIVATE sembed-lib GTest::gtest_main)

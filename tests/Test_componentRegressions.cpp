@@ -1476,8 +1476,7 @@ TEST(DataSetRegression, FlatDataSetThrowsForTruncatedPayload) {
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   ASSERT_TRUE(out.is_open());
 
-  // Claim 10 records with storedDim = 3, but write only 2 records in the
-  // id-block + column-major payload layout.
+  // Claim 10 records with storedDim = 3, but write only 2 interleaved records.
   const int64_t advertised_n = 10;
   const int64_t stored_dim = 3;
   out.write(reinterpret_cast<const char *>(&advertised_n),
@@ -1485,8 +1484,10 @@ TEST(DataSetRegression, FlatDataSetThrowsForTruncatedPayload) {
   out.write(reinterpret_cast<const char *>(&stored_dim), sizeof(stored_dim));
   const int64_t ids[] = {0, 1};
   const float values[] = {0.0f, 0.0f, 1.0f, 1.0f};
-  out.write(reinterpret_cast<const char *>(ids), sizeof(ids));
-  out.write(reinterpret_cast<const char *>(values), sizeof(values));
+  out.write(reinterpret_cast<const char *>(&ids[0]), sizeof(ids[0]));
+  out.write(reinterpret_cast<const char *>(&values[0]), 2 * sizeof(float));
+  out.write(reinterpret_cast<const char *>(&ids[1]), sizeof(ids[1]));
+  out.write(reinterpret_cast<const char *>(&values[2]), 2 * sizeof(float));
   out.close();
 
   EXPECT_ANY_THROW({ FlatDataSet ds(path); })

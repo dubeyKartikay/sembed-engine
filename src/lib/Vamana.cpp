@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -47,9 +48,14 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
         return Graph(checkedDatasetNodeCount(dataSet), degreeThreshold);
       }()) {
   validateDataset(dataSet);
+  if (!(distanceThreshold >= 1.0F) || !std::isfinite(distanceThreshold)) {
+    throw std::invalid_argument("Distance threshold must be >= 1");
+  }
   m_dataSet = std::move(dataSet);
-  m_distanceThreshold = distanceThreshold;
   m_searchListSize = searchListSize;
+  m_distanceThreshold = 1.0F;
+  buildIndex();
+  m_distanceThreshold = distanceThreshold;
   buildIndex();
 }
 

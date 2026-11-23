@@ -1,184 +1,105 @@
 #include "cli_workflow.hpp"
 
-#include <filesystem>
 #include <iostream>
-#include <stdexcept>
+#include <map>
 #include <string>
 #include <vector>
 
-#include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 #include <sembed/sembed.hpp>
 
 namespace {
 
 using Json = nlohmann::json;
+using Options = std::map<std::string, std::string>;
 
-std::vector<float> parseVector(const Json& value) {
-  if (!value.is_array()) {
-    throw std::invalid_argument("query vector must be a JSON array");
+Options readOptions(int argc, char** argv) {
+  Options options;
+  for (int i = 2; i < argc; ++i) {
+    std::string name = argv[i];
+    options[name] = name == "--stdin-jsonl" ? "" : argv[++i];
   }
-  std::vector<float> vector;
-  vector.reserve(value.size());
-  for (const Json& component : value) {
-    if (!component.is_number()) {
-      throw std::invalid_argument("query vector components must be numbers");
-    }
-    vector.push_back(component.get<float>());
-  }
-  return vector;
+  return options;
 }
 
-Json resultsJson(const sembed::Index& index, const std::vector<float>& vector,
-                 const sembed::QueryConfig& config) {
-  const std::vector<sembed::Neighbor> neighbors = sembed::query(
-      index, sembed::FloatVectorView(vector), config);
+uint64_t integer(const Options& options, const std::string& name,
+                 uint64_t fallback) {
+  return options.count(name) ? std::stoull(options.at(name)) : fallback;
+}
+
+float decimal(const Options& options, const std::string& name, float fallback) {
+  return options.count(name) ? std::stof(options.at(name)) : fallback;
+}
+
+Json search(const sembed::Index& index, const Json& vectorJson,
+            const sembed::QueryConfig& config) {
+  const auto vector = vectorJson.get<std::vector<float>>();
   Json results = Json::array();
-  for (const sembed::Neighbor& neighbor : neighbors) {
+  for (const auto& neighbor :
+       sembed::query(index, sembed::FloatVectorView(vector), config)) {
     results.push_back({{"node", neighbor.node},
                        {"record_id", neighbor.recordId},
                        {"distance", neighbor.distance}});
   }
-  return results;
-}
-
-Json queryResponse(const sembed::Index& index, const Json& request,
-                   const sembed::QueryConfig& defaults) {
-  const Json& vectorJson =
-      request.is_object() ? request.at("vector") : request;
-  const std::vector<float> vector = parseVector(vectorJson);
-
-  sembed::QueryConfig config = defaults;
-  if (request.is_object()) {
-    config.k = request.value("k", config.k);
-    config.searchListSize =
-        request.value("search_list_size", config.searchListSize);
-  }
-
-  Json response = {{"results", resultsJson(index, vector, config)}};
-  if (request.is_object() && request.contains("id")) {
-    response["id"] = request["id"];
-  }
-  return response;
-}
-
-void runStreamingQueries(const sembed::Index& index,
-                         const sembed::QueryConfig& defaults) {
-  std::string line;
-  while (std::getline(std::cin, line)) {
-    if (line.empty()) {
-      continue;
-    }
-    try {
-      const Json request = Json::parse(line);
-      std::cout << queryResponse(index, request, defaults).dump() << '\n'
-                << std::flush;
-    } catch (const std::exception& error) {
-      std::cout << Json({{"error", error.what()}}).dump() << '\n'
-                << std::flush;
-    }
-  }
+  return {{"results", results}};
 }
 
 }  // namespace
 
 int runSembedCli(int argc, char** argv) {
-  std::filesystem::path datasetPath;
-  std::filesystem::path outputPath;
-  std::filesystem::path indexPath;
-  std::string vectorJson;
-  bool stdinJsonl = false;
-  sembed::IndexConfig indexConfig;
-  sembed::QueryConfig queryConfig;
-
-  CLI::App app{"Build and query self-contained Vamana indexes."};
-  app.set_help_flag("-h,--help", "Show this help message and exit.");
-
-  CLI::App* indexCommand =
-      app.add_subcommand("index", "Build a self-contained index.");
-  indexCommand->add_option("--dataset", datasetPath, "Binary dataset path.")
-      ->required();
-  indexCommand->add_option("--output", outputPath, "Output .sembed path.")
-      ->required();
-  indexCommand
-      ->add_option("--degree-threshold", indexConfig.degreeThreshold,
-                   "Maximum graph out-degree.")
-      ->capture_default_str();
-  indexCommand
-      ->add_option("--search-list-size", indexConfig.searchListSize,
-                   "Candidate list size used while building.")
-      ->capture_default_str();
-  indexCommand
-      ->add_option("--distance-threshold", indexConfig.distanceThreshold,
-                   "Vamana alpha pruning parameter.")
-      ->capture_default_str();
-
-  CLI::App* queryCommand =
-      app.add_subcommand("query", "Query a self-contained index.");
-  queryCommand->add_option("--index", indexPath, "Input .sembed path.")
-      ->required();
-  queryCommand->add_option(
-      "--vector", vectorJson,
-      "Full query vector encoded as a JSON array, for example '[1,2,3]'.");
-  queryCommand->add_flag(
-      "--stdin-jsonl", stdinJsonl,
-      "Read JSON vectors or {id,vector} objects from stdin, one per line.");
-  queryCommand->add_option("--k", queryConfig.k, "Number of neighbors.")
-      ->capture_default_str();
-  queryCommand
-      ->add_option("--search-list-size", queryConfig.searchListSize,
-                   "Candidate list size; 0 reuses the index setting.")
-      ->capture_default_str();
-
-  app.require_subcommand(1);
-
-  try {
-    app.parse(argc, argv);
-  } catch (const CLI::ParseError& error) {
-    return app.exit(error);
+  if (argc < 2 || std::string(argv[argc - 1]).find("help") != std::string::npos) {
+    std::cout << "sembed index --dataset PATH --output PATH [options]\n"
+                 "sembed query --index PATH (--vector JSON | --stdin-jsonl) "
+                 "[options]\n";
+    return argc < 2;
   }
 
   try {
-    if (*indexCommand) {
-      sembed::Index index = sembed::buildIndex(datasetPath, indexConfig);
-      index.save(outputPath);
+    const std::string command = argv[1];
+    const Options options = readOptions(argc, argv);
+
+    if (command == "index") {
+      const sembed::IndexConfig config{
+          integer(options, "--degree-threshold", 64),
+          integer(options, "--search-list-size", 100),
+          decimal(options, "--distance-threshold", 1.2F)};
+      const std::string output = options.at("--output");
+      sembed::Index index = sembed::buildIndex(options.at("--dataset"), config);
+      index.save(output);
       std::cout << Json({{"command", "index"},
-                         {"index", outputPath.string()},
+                         {"index", output},
                          {"records", index.size()},
                          {"dimensions", index.dimensions()},
                          {"config",
-                          {{"degree_threshold", indexConfig.degreeThreshold},
-                           {"search_list_size", indexConfig.searchListSize},
-                           {"distance_threshold",
-                            indexConfig.distanceThreshold}}}})
+                          {{"degree_threshold", config.degreeThreshold},
+                           {"search_list_size", config.searchListSize},
+                           {"distance_threshold", config.distanceThreshold}}}})
                        .dump(2)
                 << '\n';
       return 0;
     }
 
-    if (*queryCommand) {
-      const bool hasVector = !vectorJson.empty();
-      if (stdinJsonl == hasVector) {
-        throw std::invalid_argument(
-            "provide exactly one of --vector or --stdin-jsonl");
+    const sembed::QueryConfig config{
+        integer(options, "--k", 10),
+        integer(options, "--search-list-size", 0)};
+    const std::string indexPath = options.at("--index");
+    const sembed::Index index = sembed::Index::load(indexPath);
+    if (options.count("--stdin-jsonl")) {
+      for (std::string line; std::getline(std::cin, line);) {
+        const Json request = Json::parse(line);
+        Json response = search(index, request.at("vector"), config);
+        response["id"] = request.at("id");
+        std::cout << response.dump() << '\n' << std::flush;
       }
-      const sembed::Index index = sembed::Index::load(indexPath);
-      if (stdinJsonl) {
-        runStreamingQueries(index, queryConfig);
-        return 0;
-      }
-
-      const Json request = Json::parse(vectorJson);
-      Json response = queryResponse(index, request, queryConfig);
+    } else {
+      Json response = search(index, Json::parse(options.at("--vector")), config);
       response["command"] = "query";
-      response["index"] = indexPath.string();
+      response["index"] = indexPath;
       std::cout << response.dump(2) << '\n';
-      return 0;
     }
+    return 0;
   } catch (const std::exception& error) {
     std::cerr << "sembed: " << error.what() << '\n';
     return 1;
   }
-
-  return 0;
 }

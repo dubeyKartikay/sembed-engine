@@ -6,8 +6,7 @@
       "dataset": "gvec.bin",
       "query_count": 32,
       "k": 10,
-      "seed": 20260421,
-      "exclude_self": true
+      "seed": 20260421
     },
     {
       "name": "gvec-vamana-r32-l64",
@@ -16,7 +15,6 @@
       "query_count": 32,
       "k": 10,
       "seed": 20260421,
-      "exclude_self": true,
       "degree_threshold": 32,
       "search_list_size": 64,
       "distance_threshold": 1.2
@@ -27,8 +25,7 @@
       "dataset": "w2v.bin",
       "query_count": 32,
       "k": 10,
-      "seed": 20260421,
-      "exclude_self": true
+      "seed": 20260421
     },
     {
       "name": "w2v-vamana-r32-l64",
@@ -37,7 +34,6 @@
       "query_count": 32,
       "k": 10,
       "seed": 20260421,
-      "exclude_self": true,
       "degree_threshold": 32,
       "search_list_size": 64,
       "distance_threshold": 1.2

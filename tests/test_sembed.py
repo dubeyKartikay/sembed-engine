@@ -13,8 +13,8 @@ def write_dataset(path, record_ids, vectors):
     dimensions = len(vectors[0])
     with path.open("wb") as output:
         output.write(struct.pack("=qq", len(vectors), dimensions + 1))
-        output.write(struct.pack(f"={len(record_ids)}q", *record_ids))
-        for vector in vectors:
+        for record_id, vector in zip(record_ids, vectors):
+            output.write(struct.pack("=q", record_id))
             output.write(struct.pack(f"={dimensions}f", *vector))
 
 
