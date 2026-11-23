@@ -100,6 +100,13 @@ void Graph::clearOutNeighbors(NodeId node) {
   m_adjList.at(static_cast<size_t>(node)).clear();
 }
 
+void Graph::setMedoid(OptionalNodeId medoid) {
+  if (medoid && *medoid >= static_cast<uint64_t>(m_adjList.size())) {
+    throw std::out_of_range("medoid index is outside graph bounds");
+  }
+  m_medoid = medoid;
+}
+
 Graph::Graph(std::filesystem::path path) {
   std::ifstream file(path, std::ios::binary);
   if (!file.is_open()) {

@@ -7,3 +7,6 @@
 [submodule "external/json"]
 	path = external/json
 	url = https://github.com/nlohmann/json.git
+[submodule "external/metal-cpp"]
+	path = external/metal-cpp
+	url = https://github.com/apple/metal-cpp.git

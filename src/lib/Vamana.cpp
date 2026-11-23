@@ -1,4 +1,5 @@
 #include "vamana.hpp"
+#include "medoid.hpp"
 #include "searchresults.hpp"
 #include "utils.hpp"
 #include "vector_view.hpp"
@@ -52,6 +53,7 @@ Vamana::Vamana(std::unique_ptr<DataSet> dataSet, uint64_t degreeThreshold,
     throw std::invalid_argument("Distance threshold must be >= 1");
   }
   m_dataSet = std::move(dataSet);
+  m_graph.setMedoid(sembed_internal::computeMedoid(*m_dataSet));
   m_searchListSize = searchListSize;
   m_distanceThreshold = 1.0F;
   buildIndex();

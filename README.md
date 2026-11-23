@@ -231,6 +231,17 @@ The Python driver owns query sampling, the exact NumPy baseline, recall,
 latency, throughput, comparisons, and report generation. It communicates with
 the long-lived CLI JSONL protocol so the index is loaded once per run.
 
+## Metal GPU acceleration (macOS)
+
+On Apple platforms, medoid computation can be GPU-accelerated with `metal-cpp`
+and Metal Performance Shaders (MPS) via `SEMBED_ENABLE_METAL`:
+
+```sh
+cmake -S . -B build-metal -DSEMBED_ENABLE_METAL=ON
+cmake --build build-metal --parallel
+ctest --test-dir build-metal --output-on-failure
+```
+
 ## Sanitizers
 
 AddressSanitizer and UndefinedBehaviorSanitizer remain opt-in library build

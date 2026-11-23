@@ -8,6 +8,7 @@ include(GNUInstallDirs)
 
 option(SEMBED_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(SEMBED_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+option(SEMBED_ENABLE_METAL "Enable Metal + MPS GPU acceleration on Apple platforms" OFF)
 
 set(SEMBED_PUBLIC_HEADERS
     include/sembed/dataset_view.hpp
@@ -23,6 +24,7 @@ add_library(sembed-lib STATIC
     src/lib/HDVector.cpp
     src/utils/randomUtils.cpp
     src/lib/flatDataset.cpp
+    src/lib/medoid.cpp
     src/lib/Vamana.cpp
     src/lib/Graph.cpp
 )
@@ -44,7 +46,9 @@ target_include_directories(sembed-lib
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(sembed-lib PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(sembed-lib PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic>
+    )
     if(SEMBED_ENABLE_ASAN)
         target_compile_options(sembed-lib PUBLIC -fsanitize=address -fno-omit-frame-pointer)
         target_link_options(sembed-lib PUBLIC -fsanitize=address -fno-omit-frame-pointer)
@@ -53,6 +57,37 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(sembed-lib PUBLIC -fsanitize=undefined -fno-omit-frame-pointer)
         target_link_options(sembed-lib PUBLIC -fsanitize=undefined -fno-omit-frame-pointer)
     endif()
+endif()
+
+if(SEMBED_ENABLE_METAL)
+    if(NOT APPLE)
+        message(FATAL_ERROR "SEMBED_ENABLE_METAL is only supported on Apple platforms")
+    endif()
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/metal-cpp/Metal/Metal.hpp")
+        message(FATAL_ERROR "external/metal-cpp is missing; run 'git submodule update --init --recursive'")
+    endif()
+
+    enable_language(OBJCXX)
+    target_sources(sembed-lib PRIVATE
+        src/lib/metal_medoid.cpp
+        src/lib/mps_bridge.mm
+    )
+    set_source_files_properties(src/lib/mps_bridge.mm PROPERTIES
+        COMPILE_OPTIONS "-fobjc-arc;-Wall;-Wextra"
+    )
+    target_compile_definitions(sembed-lib PRIVATE SEMBED_ENABLE_METAL)
+    target_include_directories(sembed-lib SYSTEM PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/metal-cpp
+    )
+
+    find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(METAL_FRAMEWORK Metal REQUIRED)
+    find_library(MPS_FRAMEWORK MetalPerformanceShaders REQUIRED)
+    target_link_libraries(sembed-lib PRIVATE
+        ${FOUNDATION_FRAMEWORK}
+        ${METAL_FRAMEWORK}
+        ${MPS_FRAMEWORK}
+    )
 endif()
 
 add_executable(sembed
@@ -124,6 +159,7 @@ target_compile_definitions(sembed-tests PRIVATE
     SEMBED_TEST_BINARY_DIR="${CMAKE_BINARY_DIR}"
     SEMBED_TEST_PYTHON="${Python3_EXECUTABLE}"
     SEMBED_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    $<$<BOOL:${SEMBED_ENABLE_METAL}>:SEMBED_ENABLE_METAL>
 )
 add_custom_command(TARGET sembed-tests PRE_BUILD
     COMMAND ${Python3_EXECUTABLE}

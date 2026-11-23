@@ -40,6 +40,7 @@ public:
                          uint64_t dimensions) = 0;
   virtual void save(std::ostream& output) const = 0;
   virtual float *data() = 0;
+  virtual const float *data() const = 0;
 };
 
 class FlatDataSet : public DataSet {
@@ -57,6 +58,7 @@ public:
   FlatDataSet(FlatDataSet &&) = default;
   FlatDataSet &operator=(FlatDataSet &&) = default;
   float *data() override { return m_vectors.data(); }
+  const float *data() const override { return m_vectors.data(); }
   RecordView getRecordViewByIndex(uint64_t index) const override;
   void addVector(int64_t recordId, const float* vector,
                  uint64_t dimensions) override;

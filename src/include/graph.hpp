@@ -21,6 +21,7 @@ public:
   void clearOutNeighbors(NodeId node);
 
   OptionalNodeId getMedoid() const { return m_medoid; }
+  void setMedoid(OptionalNodeId medoid);
   uint64_t getDegreeThreshold() const { return m_degreeThreshold; }
   uint64_t getNodeCount() const { return static_cast<uint64_t>(m_adjList.size()); }
 
