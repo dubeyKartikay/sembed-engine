@@ -126,8 +126,7 @@ def run_vamana(run, binary, dataset, vectors, queries, artifact_dir):
         started = time.perf_counter_ns()
         response = ask(process, vectors[node], position)
         latencies.append((time.perf_counter_ns() - started) / 1_000_000)
-        nodes = [neighbor["node"] for neighbor in response["results"]]
-        nodes.remove(node)
+        nodes = [neighbor["node"] for neighbor in response["results"] if neighbor["node"] != node]
         approximate.append(nodes[:k])
     process.stdin.close()
     process.wait()
