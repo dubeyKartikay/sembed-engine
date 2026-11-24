@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -197,36 +198,88 @@ bool Vamana::isToBePruned(NodeId pDash, NodeId pStar, NodeId p) {
   return alphaSquared * pStarToPDash <= pToPDash;
 }
 
-void Vamana::prune(NodeId node,const std::vector<Neighbour> &candidates) {
+void Vamana::prune(NodeId node, const std::vector<Neighbour> &candidates) {
   m_graph.clearOutNeighbors(node);
   const uint64_t degreeThreshold = m_graph.getDegreeThreshold();
-  std::vector<bool> deletedCandidates(candidates.size(), false);
-  uint64_t next = 0;
+  if (degreeThreshold == 0 || candidates.empty()) {
+    return;
+  }
+
+  const FloatVectorView pValues = m_dataSet->getRecordViewByIndex(node).values;
+  struct Candidate {
+    NodeId node;
+    float distSq;
+  };
+  std::vector<Candidate> pool;
+  pool.reserve(candidates.size());
+  for (const Neighbour &candidate : candidates) {
+    if (candidate.node == node) {
+      continue;
+    }
+    const float distSq = squaredDistance(
+        pValues, m_dataSet->getRecordViewByIndex(candidate.node).values);
+    pool.push_back({candidate.node, distSq});
+  }
+  if (pool.empty()) {
+    return;
+  }
+
+  const float targetAlpha = std::max(1.0F, m_distanceThreshold);
+  const float targetAlphaSq = targetAlpha * targetAlpha;
+  std::vector<float> occludeSq(pool.size(), 0.0F);
+  std::vector<bool> selectedMask(pool.size(), false);
   uint64_t selected = 0;
-  while (next < candidates.size()) {
-    while (next < candidates.size() && deletedCandidates[next]) {
-      next++;
-    }
-    if (next == candidates.size()) {
-      break;
-    }
 
-    const Neighbour pStar = candidates[next];
-    m_graph.addOutNeighborUnique(node, pStar.node);
-    deletedCandidates[next] = true;
-    ++selected;
-    if (selected == degreeThreshold) {
-      break;
-    }
-
-    for (uint64_t i = next + 1; i < candidates.size(); i++){
-      if (deletedCandidates[i]) {
+  constexpr float kAlphaStep = 1.2F;
+  float curAlpha = 1.0F;
+  while (selected < degreeThreshold) {
+    const float curAlphaSq = curAlpha * curAlpha;
+    for (size_t i = 0; i < pool.size() && selected < degreeThreshold; ++i) {
+      if (selectedMask[i] || occludeSq[i] >= curAlphaSq) {
         continue;
       }
-      const Neighbour pDash = candidates[i];
-      if (isToBePruned(pDash.node, pStar.node, node)) {
-        deletedCandidates[i] = true;
+
+      const NodeId pStar = pool[i].node;
+      const FloatVectorView pStarValues =
+          m_dataSet->getRecordViewByIndex(pStar).values;
+      m_graph.addOutNeighborUnique(node, pStar);
+      selectedMask[i] = true;
+      occludeSq[i] = std::numeric_limits<float>::infinity();
+      ++selected;
+      if (selected == degreeThreshold) {
+        break;
       }
+
+      for (size_t j = i + 1; j < pool.size(); ++j) {
+        if (selectedMask[j] || occludeSq[j] >= targetAlphaSq) {
+          continue;
+        }
+        const float d2StarToDash = squaredDistance(
+            pStarValues, m_dataSet->getRecordViewByIndex(pool[j].node).values);
+        const float ratioSq =
+            d2StarToDash == 0.0F
+                ? std::numeric_limits<float>::infinity()
+                : (pool[j].distSq / d2StarToDash);
+        if (ratioSq > occludeSq[j]) {
+          occludeSq[j] = ratioSq;
+        }
+      }
+    }
+
+    if (curAlpha >= targetAlpha) {
+      break;
+    }
+    curAlpha = std::min(targetAlpha, curAlpha * kAlphaStep);
+  }
+
+  if (m_saturateGraph && selected < degreeThreshold) {
+    for (size_t i = 0; i < pool.size() && selected < degreeThreshold; ++i) {
+      if (selectedMask[i]) {
+        continue;
+      }
+      m_graph.addOutNeighborUnique(node, pool[i].node);
+      selectedMask[i] = true;
+      ++selected;
     }
   }
 }

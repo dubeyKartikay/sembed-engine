@@ -32,6 +32,8 @@ public:
 
   float getDistanceThreshold() const { return m_distanceThreshold; }
   void setDistanceThreshold(float alpha) { m_distanceThreshold = alpha; }
+  bool getSaturateGraph() const { return m_saturateGraph; }
+  void setSaturateGraph(bool saturate) { m_saturateGraph = saturate; }
 
   uint64_t getSearchListSize() const { return m_searchListSize; }
   bool isToBePruned(NodeId pDash, NodeId pStar, NodeId p);
@@ -69,6 +71,7 @@ private:
   Graph m_graph;
   float m_distanceThreshold = 1.2f;
   uint64_t m_searchListSize = 100;
+  bool m_saturateGraph = true;
 };
 
 #endif  // VAMANA
